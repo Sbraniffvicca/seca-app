@@ -1,0 +1,62 @@
+--
+-- test chat 1: basic missing info
+--
+
+curl -X POST "http://localhost:3002/chat/chatresponse"
+
+expect response:
+ 
+{"message":"Authorization token missing or invalid","error":"Unauthorized","statusCode":401}
+
+--
+-- test chat 2: any old token
+--
+
+curl -X POST "http://localhost:3002/chat/chatresponse" ^
+     -H "Authorization: Bearer malformed-crap" ^
+     -H "Content-Type: application/json"
+
+expected response:
+C:\ai_project\chat-service>curl -X POST "http://localhost:3002/chat/chatresponse" ^
+More?      -H "Authorization: Bearer malformed-crap" ^
+More?      -H "Content-Type: application/json"
+{"message":"An unexpected error occurred.","error":"Internal Server Error","statusCode":500}
+C:\ai_project\chat-service>
+
+--
+-- test 3: valid token check through rag
+--
+first you have to go get a valid token from the MySQL cli
+
+curl -X POST "http://localhost:3002/chat/chatresponse" ^
+  -H "Content-Type: application/json" ^
+  --cookie "authToken=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI1MjQyZDY0OTBmZjc3YjdkYWQ3NWVkM2M3OTg0NjViNCIsImlhdCI6MTczODk2OTQyNiwiZXhwIjoxNzM5NTc0MjI2fQ.W-Ve0fiHktdU3Nm3tCFJ26RvSsELxQKfCFyh9DuKFm529R3_UOjBttUp6vj6VOHjMDSHL52RvWN-7PLCcLXZMbq6l6oNhUYZJwsn-S8z3BPPDWsqK5vdaxIdyocapgPOADwCglonmoUmNiv1LL7UnK6-a7QwnEC9W6iPUPemrBNRi2aGqJSn5qoqaOV0FFBTEBabEibrmq9TqPbX4-7BResgbribKBgK_l3xkmdaYPdwKZbmKq_nrRiNiKGQf1a1ZdR6ArG0h2KgCaCa-FkPSIO84ElWT8YVj5GvA6TM41FKOXwjhXEJPw6IEARTTsXeHw9Zo_Dgt78jVEnJltd9_w" ^
+  -d "{ \"message\": \"What is a firewall?\" }"
+
+--
+-- test 4: change rag to on (from default off)
+select * from users;
+
+curl -X POST "http://localhost:3002/chat/chatresponse" ^
+  -H "Content-Type: application/json" ^
+  --cookie "authToken=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiI1MjQyZDY0OTBmZjc3YjdkYWQ3NWVkM2M3OTg0NjViNCIsImlhdCI6MTczODk2OTQyNiwiZXhwIjoxNzM5NTc0MjI2fQ.W-Ve0fiHktdU3Nm3tCFJ26RvSsELxQKfCFyh9DuKFm529R3_UOjBttUp6vj6VOHjMDSHL52RvWN-7PLCcLXZMbq6l6oNhUYZJwsn-S8z3BPPDWsqK5vdaxIdyocapgPOADwCglonmoUmNiv1LL7UnK6-a7QwnEC9W6iPUPemrBNRi2aGqJSn5qoqaOV0FFBTEBabEibrmq9TqPbX4-7BResgbribKBgK_l3xkmdaYPdwKZbmKq_nrRiNiKGQf1a1ZdR6ArG0h2KgCaCa-FkPSIO84ElWT8YVj5GvA6TM41FKOXwjhXEJPw6IEARTTsXeHw9Zo_Dgt78jVEnJltd9_w" ^
+  -d "{ \"message\": \"rag on\" }"
+
+
+
+-- test 5: multi record test against the llama server directly nonstream
+curl -X POST "http://localhost:8082/v1/chat/completions" -H "Content-Type: application/json" -d "{\"model\":\"local-llama-model\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"Do you have a cat?\"}],\"max_tokens\":500,\"temperature\":0,\"top_p\":0}"
+
+-- test llama stream
+curl -X POST "http://localhost:8082/v1/chat/completions" -H "Content-Type: application/json" -d "{\"model\":\"local-llama-model\",\"messages\":[{\"role\":\"system\",\"content\":\"You are a helpful assistant.\"},{\"role\":\"user\",\"content\":\"Do you have a cat?\"}],\"max_tokens\":500,\"temperature\":0,\"top_p\":0,\"stream\":true}"
+
+
+-- test 6 multi record against the chatresponse
+curl -X POST "http://localhost:3002/chat/chatresponse" -H "Content-Type: application/json" --cookie "authToken=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMmUzN2NhODZlYzI3NDZmZGVjODVkYjZhMzFkNWNjNiIsImlhdCI6MTczOTMyMjExMywiZXhwIjoxNzM5OTI2OTEzfQ.RdoQ-H6XB3JpUXTTysWNOF0AMABV6mlu3f6NakhwA1OBs4BRfpXPhrrIzzf47A8M6STJAAio2v42ZEeHngxKHaeLyGKiMNqP1eMC3v6x-qU--Ckc82Js-J5EWaOqKokD8Wx7Nv1SanRAJfeSgL3LQC2URNXSF4C3aXPvRwv6ZxhENVhnKsn5vXtRHd4qPuPlRWsnNlLZEmvI0JYrK3oIhPEdsl-tM-Nq7AGScudoM32iUjKy3Z9VJAAeejLfmgpj0wNAnABi6MPFKFyQxHzfRoYh4WrGXDPonrxVVwhnb4t832yovTm6q7kAlTT9xAYIyB61zoAjSef475bR60R_sQ" -d "{\"message\": \"test\"}"
+
+-- simple test chatresponse
+curl -X POST "http://localhost:3002/chat/chatresponse" -H "Content-Type: application/json" --cookie "authToken=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMmUzN2NhODZlYzI3NDZmZGVjODVkYjZhMzFkNWNjNiIsImlhdCI6MTczOTMyMjExMywiZXhwIjoxNzM5OTI2OTEzfQ.RdoQ-H6XB3JpUXTTysWNOF0AMABV6mlu3f6NakhwA1OBs4BRfpXPhrrIzzf47A8M6STJAAio2v42ZEeHngxKHaeLyGKiMNqP1eMC3v6x-qU--Ckc82Js-J5EWaOqKokD8Wx7Nv1SanRAJfeSgL3LQC2URNXSF4C3aXPvRwv6ZxhENVhnKsn5vXtRHd4qPuPlRWsnNlLZEmvI0JYrK3oIhPEdsl-tM-Nq7AGScudoM32iUjKy3Z9VJAAeejLfmgpj0wNAnABi6MPFKFyQxHzfRoYh4WrGXDPonrxVVwhnb4t832yovTm6q7kAlTT9xAYIyB61zoAjSef475bR60R_sQ" -d "{\"message\": \"test\"}"
+
+
+
+eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJmMmUzN2NhODZlYzI3NDZmZGVjODVkYjZhMzFkNWNjNiIsImlhdCI6MTczOTMyMjExMywiZXhwIjoxNzM5OTI2OTEzfQ.RdoQ-H6XB3JpUXTTysWNOF0AMABV6mlu3f6NakhwA1OBs4BRfpXPhrrIzzf47A8M6STJAAio2v42ZEeHngxKHaeLyGKiMNqP1eMC3v6x-qU--Ckc82Js-J5EWaOqKokD8Wx7Nv1SanRAJfeSgL3LQC2URNXSF4C3aXPvRwv6ZxhENVhnKsn5vXtRHd4qPuPlRWsnNlLZEmvI0JYrK3oIhPEdsl-tM-Nq7AGScudoM32iUjKy3Z9VJAAeejLfmgpj0wNAnABi6MPFKFyQxHzfRoYh4WrGXDPonrxVVwhnb4t832yovTm6q7kAlTT9xAYIyB61zoAjSef475bR60R_sQ

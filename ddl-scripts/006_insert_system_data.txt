@@ -1,0 +1,118 @@
+-- Use the target database
+USE chat;
+
+
+-- =========================
+-- Cleanup Existing Data
+-- =========================
+SET FOREIGN_KEY_CHECKS = 0; -- Temporarily disable foreign key checks to avoid dependency issues
+
+truncate table quickprompts;
+
+-- core
+INSERT INTO quickprompts (category, label, prefill_text, use_page_count) VALUES
+('Expand', 'Go Into More Detail', 'Expand on the conversation with additional detail and clarification wherever the discussion feels vague or high-level.', true),
+('Expand', 'Add Supporting Examples', 'Enrich the conversation by adding concrete examples or use cases that illustrate the main points.', true),
+('Expand', 'Explain to a Non-Expert', 'Add contextual explanations that would help a non-expert understand the content and concepts discussed.', false),
+('Expand', 'Add Historical or Legal Context', 'Supplement the conversation with relevant historical background, legal precedent, or context.', true),
+('Expand', 'Add Counterexamples', 'Strengthen the conversation by introducing edge cases or exceptions to the rules or arguments made.', false);
+
+
+INSERT INTO quickprompts (category, label, prefill_text, use_page_count) VALUES 
+('Summarize', 'Executive Summary', 'Summarize the conversation as a one-paragraph executive summary suitable for senior leadership.', true),
+('Summarize', '2-Page Detailed Summary', 'Generate a detailed, two-page summary of the conversation, preserving structure, key reasoning, and major points.', true),
+('Summarize', 'Bullet Point Notes', 'Summarize the conversation into clear, concise bullet points for internal reference.', false),
+('Summarize', 'Action Items Only', 'Extract only the action items and responsibilities mentioned in the conversation.', false),
+('Summarize', 'For Busy Executive', 'Create a high-level summary of this conversation, omitting technical detail, focused only on decisions and outcomes.', true),
+('Summarize', 'As Email Summary', 'Write a short email summarizing this conversation for a team member who was not present.', false),
+
+('Analyze', 'Identify Gaps or Missing Info', 'Review the conversation and identify any gaps, unanswered questions, or missing information.', false),
+('Analyze', 'Highlight Key Decisions', 'Highlight any decisions, conclusions, or priorities that were discussed or implied.', false),
+('Analyze', 'Extract Definitions', 'Extract and define all technical terms or domain-specific phrases mentioned in the conversation.', false),
+('Analyze', 'Extract Assumptions or Bias', 'Analyze the conversation for any implicit assumptions or potential biases.', false),
+('Analyze', 'Extract Questions Asked', 'List all the questions raised, directly or indirectly, during the conversation.', false),
+
+('Transform', 'Rewrite in Plain Language', 'Rewrite the conversation using simple, clear language suitable for non-experts.', false),
+('Transform', 'Rewrite as Formal Brief', 'Convert the conversation into a formal brief with structured headings and a neutral tone.', true),
+('Transform', 'Convert to FAQ Format', 'Convert the key questions and answers from the conversation into a FAQ document.', false),
+('Transform', 'Turn Into Markdown Notes', 'Rewrite the conversation as clean, well-formatted Markdown bullet notes.', false),
+('Transform', 'Turn Into Narrative Story', 'Retell the conversation as a coherent story, with a beginning, middle, and end.', true),
+('Transform', 'Reframe with Empathy', 'Rephrase the conversation to prioritize empathy, clarity, and inclusive language.', false),
+
+('Challenge', 'Argue the Opposite Position', 'Construct a reasoned argument that challenges the core position discussed.', true),
+('Challenge', 'Identify Logical Flaws', 'Identify any logical flaws, weak reasoning, or unsupported conclusions in the conversation.', false),
+('Challenge', 'Suggest Alternate Theories', 'Suggest an alternative interpretation or theory that could explain the same facts.', true),
+('Challenge', 'What Would a Skeptic Say?', 'Roleplay a skeptical reviewer and highlight what they might criticize or question.', false),
+
+('Compare', 'Pros and Cons', 'List the pros and cons of the options discussed, based on the conversation content.', false),
+('Compare', 'Multiple Viewpoints', 'Compare the different viewpoints or perspectives presented in the conversation.', false),
+('Compare', 'This Session vs Previous', 'Compare this conversation to the previous one and highlight differences in conclusions or tone.', false),
+
+('Communicate', 'Draft Email Summary', 'Draft an email that summarizes this conversation in 1–2 paragraphs.', false),
+('Communicate', 'Write LinkedIn Post', 'Create a professional LinkedIn post based on the key ideas from this conversation.', false),
+('Communicate', 'Create Presentation Outline', 'Create an outline for a short presentation summarizing the conversation.', true),
+('Communicate', 'Translate Into Legal Memo', 'Translate the conversation into a formal legal memorandum.', true),
+('Communicate', 'Translate Into French', 'Translate the entire conversation into fluent, professional French.', false),
+
+('Next', 'Suggest What to Do Next', 'Based on the conversation, suggest next steps or follow-up actions.', true),
+('Next', 'Draft Follow-Up Questions', 'Generate a list of follow-up questions that should be asked based on this discussion.', false),
+('Next', 'Recommend Tools or Resources', 'Recommend specific tools, frameworks, or resources that relate to this conversation.', true),
+
+('Meta', 'Rate Clarity 1–10', 'Rate the clarity and usefulness of the conversation on a scale from 1 to 10, and justify your score.', false),
+('Meta', 'What Am I Missing?', 'Identify important points or perspectives that may have been overlooked in this conversation.', false),
+('Meta', 'How Might Others Misunderstand This?', 'Explain how someone unfamiliar with the context might misunderstand the conversation.', false),
+('Meta', 'What Would GPT Do Differently?', 'Imagine you are another AI reviewing this transcript. How would you respond differently?', false);
+
+INSERT INTO quickprompts (category, label, prefill_text, use_page_count) VALUES
+('Next', 'Suggest Follow-Up Prompts', 'Based on this conversation, suggest the next few questions I should ask you to deepen or clarify the discussion. Think in terms of a prompt engineering workflow — each follow-up should have a clear intent and be framed to guide useful output.', false);
+
+INSERT INTO quickprompts (category, label, prefill_text, use_page_count) VALUES
+('_Multi-call', 'Plan Steps Toward Goal', 'Write out a multi-step plan in bullet point form to help achieve the current goal of <REPLACETHISWITHYOURGOALSTATEMENT>. For each step:\n- Clearly describe what you intend to do.\n- Do not execute any steps yet — just describe them.', false),
+('_Multi-call', 'Execute a Specific Step', 'Please execute step <REPLACETHISWITHTHESTEPNUMBER> from your most recent plan. Only execute the one selected step. Do not proceed to later steps.', false);
+
+
+INSERT INTO quickprompts (category, label, prefill_text, use_page_count) VALUES
+('_Single-call', 'Chain of Thought', 'Write out a multi-step plan in bullet point form to help achieve the current goal of <REPLACETHISWITHYOURGOALSTATEMENT>. For each step:\n- Clearly describe what you intend to do.\n- Then, after that, execute them.', false);
+
+-- law
+INSERT INTO quickprompts (category, label, prefill_text, use_page_count) VALUES
+('Law', 'Identify Legal Issues', 'Based on the conversation, identify any legal issues, liabilities, or regulatory implications that may be relevant.', true),
+('Law', 'Draft Legal Memo', 'Rewrite the conversation as a formal legal memorandum, including issue, rule, analysis, and conclusion (IRAC format).', true),
+('Law', 'Extract Case Citations', 'Extract any case law, precedents, or statutes mentioned in the conversation. If missing, suggest ones that may be relevant.', false),
+('Law', 'Summarize for Client', 'Summarize the key legal points of this conversation in a way that could be shared with a client who is not legally trained.', true),
+('Law', 'Draft Clause Suggestion', 'Based on the legal concerns raised in the conversation, suggest a contract clause that could mitigate the issue.', false),
+('Law', 'Highlight Risk Areas', 'Highlight any parts of the conversation that suggest legal risk, ambiguity, or areas needing further clarification.', false),
+('Law', 'Compare Jurisdictional Differences', 'Compare how this legal topic might be treated under U.S. federal law versus Canadian provincial law.', true),
+('Law', 'Convert to Discovery Questions', 'Convert this conversation into a set of questions that could be used in the discovery phase of litigation.', false),
+('Law', 'Translate into Compliance Checklist', 'Convert the key responsibilities and risks into a compliance checklist format.', true),
+('Law', 'Suggest Legal Strategy Options', 'Based on this discussion, suggest possible legal strategy directions and their pros/cons.', true);
+
+-- medical
+INSERT INTO quickprompts (category, label, prefill_text, use_page_count) VALUES
+('Medical', 'Summarize for Physician', 'Summarize the clinical discussion in a way that highlights differential diagnosis, risk factors, and potential treatment paths.', true),
+('Medical', 'Highlight Red Flags', 'Identify any red flags, urgent concerns, or symptoms that warrant immediate escalation.', false),
+('Medical', 'Translate to Patient-Friendly Summary', 'Rephrase the conversation in language understandable to a non-clinical patient, removing jargon.', false),
+('Medical', 'Suggest Diagnostic Path', 'Based on the symptoms and context, suggest logical next diagnostic steps.', true),
+('Medical', 'Draft Clinical Note', 'Rewrite the conversation as a structured clinical SOAP note (Subjective, Objective, Assessment, Plan).', true),
+('Medical', 'Extract Drug Interactions', 'List all medications or treatments mentioned and flag any potential drug interactions.', false),
+('Medical', 'Generate Consent Form Language', 'Write plain-language consent form text that aligns with the medical procedure or decision discussed.', false);
+
+
+-- it compliance
+INSERT INTO quickprompts (category, label, prefill_text, use_page_count) VALUES
+('Cybersecurity', 'Identify Security Risks', 'Analyze the conversation for potential security vulnerabilities, threats, or policy violations.', false),
+('Cybersecurity', 'Translate Into Risk Register Entry', 'Convert the discussion into a structured risk register entry with likelihood and impact ratings.', true),
+('Cybersecurity', 'Draft Mitigation Plan', 'Propose a mitigation or response plan based on the identified risks or threats.', true),
+('Cybersecurity', 'Highlight Compliance Gaps', 'Identify gaps in compliance based on the regulatory frameworks relevant to this topic.', false),
+('Cybersecurity', 'Convert Into SOC Report Note', 'Translate the discussion into language suitable for inclusion in a SOC 2 or ISO 27001 audit note.', true);
+
+-- data governance and privacy
+INSERT INTO quickprompts (category, label, prefill_text, use_page_count) VALUES
+('Data Governance', 'Extract Data Classification Tags', 'Identify sensitive data types discussed and suggest classification tags (e.g., PII, PHI, confidential).', false),
+('Data Governance', 'Summarize for Privacy Officer', 'Summarize the conversation with a focus on data protection, user consent, and policy obligations.', true),
+('Data Governance', 'Draft Data Sharing Clause', 'Draft a clause that defines allowable data sharing terms for contracts or DPA agreements.', true),
+('Data Governance', 'Suggest Data Retention Policy', 'Suggest a data retention and deletion policy based on the context discussed.', true),
+('Data Governance', 'Highlight Jurisdictional Constraints', 'Flag any geographic or legal restrictions on data handling implied in the conversation.', false);
+
+
+SET FOREIGN_KEY_CHECKS = 1; -- Re-enable foreign key checks

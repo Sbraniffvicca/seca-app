@@ -1,0 +1,9 @@
+{
+  "type": "module",
+  "dependencies": {
+    "mammoth": "^1.9.0",
+    "node-fetch": "^3.3.2",
+    "pdf-parse": "^1.1.1",
+    "weaviate-ts-client": "^2.2.0"
+  }
+}

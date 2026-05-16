@@ -1,0 +1,158 @@
+-- Use the target database
+USE chat;
+
+-- Temporarily disable foreign key checks to avoid dependency issues
+SET FOREIGN_KEY_CHECKS = 0;
+
+-- =========================
+-- Drop Tables in Dependency Order
+-- =========================
+-- first the lookups
+DROP TABLE IF EXISTS conversations;
+DROP TABLE IF EXISTS auth_tokens;
+DROP TABLE IF EXISTS users;
+DROP VIEW IF EXISTS viewUsers;
+DROP TABLE IF EXISTS sessions;
+
+
+CREATE TABLE quickprompts (
+  quickprompt_id INT AUTO_INCREMENT PRIMARY KEY,
+  category        VARCHAR(50) NOT NULL,
+  label           VARCHAR(100) NOT NULL,
+  prefill_text    TEXT NOT NULL,
+  use_page_count  BOOLEAN DEFAULT FALSE
+);
+
+
+-- new role subsystem
+create table roles (
+  role_id INT AUTO_INCREMENT PRIMARY KEY,
+  role_desc varchar(255) NOT NULL,
+  created_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP,       -- Row creation timestamp
+  updated_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- Row update timestamp
+  UNIQUE (role_desc)
+);
+
+-- so a session can be either for ai conversations or it could be a knowledge session.
+-- if it is a knowledge session it is either for personal misc use (appended) .... or...
+--  if not personal use, then its for all staff (or at least some role, a collection of staff)
+-- note that the view of available knowledge sessions is all sessions that are both attached to a role,...
+-- AND the user is in the role AND the session is not already enabled (see the view for ddl details)
+create table sessions (
+    session_id INT AUTO_INCREMENT PRIMARY KEY,
+    session_owner_user_id INT NOT NULL,
+    session_desc varchar(255) NOT NULL,
+    session_type enum('Industry', 'Corporation', 'Team', 'Transaction', 'AI-Conversation', 'Misc') NULL, 
+    role_id INT NULL,
+    created_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (session_owner_user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (role_id) REFERENCES roles(role_id),
+    UNIQUE (session_owner_user_id, session_id)
+);
+
+-- the list of roles that a user is in
+create table user_roles (
+  user_role_id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  role_id INT NOT NULL,
+  created_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP,       -- Row creation timestamp
+  updated_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- Row update timestamp
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (role_id) REFERENCES roles(role_id),
+  UNIQUE (user_id, role_id)
+);
+
+-- the knowledge sessions that a user has enabled, the enabled knowledge session table
+-- note that there is application security ...
+-- making it so that only sessions that are attached to a role, that the user is in, are available to be enabled
+drop table user_rolesessions;
+create table user_rolesessions (
+  user_rolesession_id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  session_id INT NOT NULL,
+  seq INT NOT NULL,
+  created_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP,       -- Row creation timestamp
+  updated_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- Row update timestamp
+  FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+  FOREIGN KEY (session_id) REFERENCES sessions(session_id),
+  UNIQUE (user_id, session_id),
+  UNIQUE (user_id, seq)
+);
+
+
+
+
+
+-- =========================
+-- Table: users
+-- Stores user information
+-- need to active the active_session_id field which starts as NULL
+-- =========================
+create table users (
+    user_id INT AUTO_INCREMENT PRIMARY KEY,
+    role ENUM('admin', 'user') DEFAULT 'user', 			-- Role within the tenant
+    email VARCHAR(255) NOT NULL UNIQUE,                     -- bus-skey: human-readable email
+    password VARCHAR(255) NOT NULL,                         -- hashed password
+    rag_mode ENUM('rag_on', 'rag_off') DEFAULT 'rag_off',
+    first_nm VARCHAR(50) NOT NULL,                          -- first name
+    last_nm VARCHAR(50) NOT NULL,                           -- last name
+    address VARCHAR(255),                                   -- address
+    phone VARCHAR(20),                                      -- phone number
+    postal_cd VARCHAR(20),                                  -- postal code
+    active_session_id INT NULL,
+    active_model ENUM('gemini_freetier', 'local_8B', 'openai_4_mini') DEFAULT 'gemini_freetier',
+    created_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP,       -- Row creation timestamp
+    updated_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, -- Row update timestamp
+    FOREIGN KEY (active_session_id) REFERENCES sessions (session_id)
+);
+
+
+ALTER TABLE users MODIFY active_model ENUM('gemini_freetier', 'local_8B', 'openai_4_mini', 'openrouter') DEFAULT 'gemini_freetier';
+alter table users add column seedbelief longtext;
+
+-- =========================
+-- Table: auth_tokens
+-- Stores session state
+-- =========================
+CREATE TABLE auth_tokens (
+    token_id INT AUTO_INCREMENT PRIMARY KEY, -- Unique identifier for the token
+    user_id INT NOT NULL,
+    jwt_token TEXT NOT NULL,                 -- The signed JWT
+    jti VARCHAR(255) NOT NULL UNIQUE,        -- Unique token identifier
+    issued_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, -- When the token was issued
+    expires_at TIMESTAMP NOT NULL,           -- Expiration time for the token
+    created_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id)
+);
+
+
+-- =========================
+-- Table: conversations
+-- Stores chat conversation history
+-- =========================
+CREATE TABLE conversations (
+    conversation_id INT AUTO_INCREMENT PRIMARY KEY, 
+    session_id INT NOT NULL,
+    user_id INT NOT NULL,                            
+    role ENUM('user', 'snow_kb keywords', 'snow_kb data', 'snow_inc keywords', 'snow_inc data', 'rag_bid keywords',  'rag_data', 'upl data', 'assistant', 'system') NOT NULL, 
+    content LONGTEXT NOT NULL,    
+    api_keywords VARCHAR(255) NULL,
+    snow_sys_id VARCHAR(255) NULL,
+    upl_filename VARCHAR(255) DEFAULT NULL,
+    rag_filename VARCHAR(255) DEFAULT NULL,   
+    rag_chunk_id INT DEFAULT NULL,            
+    rag_tags TEXT DEFAULT NULL,  
+    removed_flag ENUM('IN','OUT') DEFAULT 'IN', 
+    token_count INT DEFAULT NULL,            
+    created_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP, 
+    updated_dttm TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+);
+
+
+
+-- Re-enable foreign key checks
+SET FOREIGN_KEY_CHECKS = 1;

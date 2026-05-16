@@ -1,0 +1,15 @@
+-- call the api 
+-- const { api_name, api_keywords, role } = req.body;
+curl -X POST "http://localhost:3002/chat/injectAPI" ^
+  -H "Content-Type: application/json" ^
+  --cookie "authToken=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhNmM2MDQzZjEyMDYwY2FiYmVhZTZlMzgwMDBmNWY4ZSIsImlhdCI6MTc0MDAxMzE4NCwiZXhwIjoxNzQwNjE3OTg0fQ.lqgwrUhPZVyDw7PQ8gPJiXbUjAjS_QWL1k_F-hbpXfTFVBVEL13Zi1Jde3xGAUEylHMAx5VCmEy2R9zYc0Nf1DOyb3-Y2rhRSdTDK_Ty2gXERc9nLwNvRrRCQoQKLYMLR4C24PTLAmTaWo6NvqVac7LqYSFgQtFOXTSd3sgBVzC15ZyoUCFLCw4IpDT0Rf2sWt1NHTEQkA2ZO4sQZQWrgYCMYTObFBNOWHXCOBqfagE1U_S8iCmEljlfdRFKqHj52WL03DG4QatEEErNkRaaChhYqY_O6uzr53klYKiP6W3TU2TUbLkgHwNOmbtCduVcj9UYAh-Se5gF_xi2iyving"  -d "{\"api_name\": \"snow_kb\", \"api_keywords\": \"active directory server slow\", \"role\": \"snow_data\"}"
+
+
+expected result:
+should match:
+curl -X GET "https://thehublab.service-now.com/api/now/table/kb_template_known_error_article?sysparm_query=short_descriptionLIKE%server%^ORshort_descriptionLIKE%slow%^ORshort_descriptionLIKE%directory%^ORshort_descriptionLIKE%active%^&^ORDERBYDESCsys_created_on&sysparm_limit=2&sysparm_fields=sys_id,number,short_description,text,category,subcategory,tags" -u "userme:passwrd" -H "Content-Type: application/json" -H "Accept: application/json"
+
+
+curl -X POST "http://localhost:3002/chat/injectAPI" ^
+  -H "Content-Type: application/json" ^
+  --cookie "authToken=eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJqdGkiOiJhNmM2MDQzZjEyMDYwY2FiYmVhZTZlMzgwMDBmNWY4ZSIsImlhdCI6MTc0MDAxMzE4NCwiZXhwIjoxNzQwNjE3OTg0fQ.lqgwrUhPZVyDw7PQ8gPJiXbUjAjS_QWL1k_F-hbpXfTFVBVEL13Zi1Jde3xGAUEylHMAx5VCmEy2R9zYc0Nf1DOyb3-Y2rhRSdTDK_Ty2gXERc9nLwNvRrRCQoQKLYMLR4C24PTLAmTaWo6NvqVac7LqYSFgQtFOXTSd3sgBVzC15ZyoUCFLCw4IpDT0Rf2sWt1NHTEQkA2ZO4sQZQWrgYCMYTObFBNOWHXCOBqfagE1U_S8iCmEljlfdRFKqHj52WL03DG4QatEEErNkRaaChhYqY_O6uzr53klYKiP6W3TU2TUbLkgHwNOmbtCduVcj9UYAh-Se5gF_xi2iyving"  -d "{\"api_name\": \"snow_kb\", \"api_keywords\": \"active directory server slow\", \"role\": \"snow_data\"}"

@@ -1,0 +1,13 @@
+https://thehublab.service-now.com/
+
+D53bt^j01IzDc_=Ig@<wB1N#HCUYwXteKun9[:m^
+branen
+
+--list of users
+curl -X GET "https://thehublab.service-now.com/api/now/v2/table/sys_user?sysparm_limit=1" -u "branen:40=&?j:tH4" -H "Content-Type: application/json" -H "Accept: application/json"
+
+--get 1 inc record
+curl -X GET "https://thehublab.service-now.com/api/now/table/incident?sysparm_query=short_descriptionLIKEserver^ORDERBYDESCsys_created_on&sysparm_limit=1" -u "branen:40=&?j:tH4" -H "Content-Type: application/json" -H "Accept: application/json"
+
+
+curl -X GET "https://thehublab.service-now.com/api/now/v2/table/sys_dictionary?sysparm_query=name=incident" -u "branen:40=&?j:tH4" -H "Accept: application/json" -H "Content-Type: application/json"

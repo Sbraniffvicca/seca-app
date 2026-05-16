@@ -1,0 +1,9 @@
+*** START OF CHUNK 1
+The STACK firewall Service is comprised of one or more firewall installations providing additional protection to applications and servers from unauthorized network traffic. Depending on your business requirements, staff can be provided administration access to the firewall system through a controlled console environment.
+Two irewall configurations are available:
+• Teensy Firewall
+• Large Firewall
+An initial consultation with Bob is required to review and address business requirements.
+
+*** START OF CHUNK 2
+Base Service: The STACK Firewall Service is comprised of only blue firewalls and the supporting firewall management infrastructure, providing additional security controls to government applications and data. The Firewall Service can filter and block based on IP addresses, ports and applications. The Service maintains “state” for all connections and logs connections to a secure database.

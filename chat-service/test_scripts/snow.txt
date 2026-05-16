@@ -1,0 +1,43 @@
+C:\Users\bstephen\OneDrive - Advanced Solutions, a DXC Technology Company\misc\service design methodology (now on SCO)\20250125 PoD
+
+
+-- sample inc #1
+curl -X GET "https://thehublab.service-now.com/api/now/table/incident?sysparm_query=short_descriptionLIKEserver^ORshort_descriptionLIKEslow^ORshort_descriptionLIKEdirectory^ORshort_descriptionLIKEactive^ORDERBYDESCsys_created_on&sysparm_limit=2&sysparm_fields=sys_id,short_description,description" -u "branen:40=&?j:tH4" -H "Content-Type: application/json" -H "Accept: application/json"
+
+-- sample inc #2 with only short_desc
+curl -X GET "https://thehublab.service-now.com/api/now/table/incident?sysparm_query=short_descriptionLIKEsphere^ORDERBYDESCsys_created_on&sysparm_limit=2&sysparm_fields=sys_id,short_description" -u "branen:40=&?j:tH4" -H "Content-Type: application/json" -H "Accept: application/json"
+
+
+
+
+-- sample kb #1 with sysparm_limit
+-- process appears to be
+1 the engine applies the sysparm_query against the table to get initial cursor
+2 the engine filters to top 2 records  (and these top 2 might well be outside my permission)
+3 the engine then applies the ACL filter check (and in theory will give me null even though there were in theory records i COULD see)
+
+-- get like server from kb
+curl -X GET "https://thehublab.service-now.com/api/now/table/kb_knowledge?sysparm_query=kb_knowledge_base!=1d4452d81b7318909c279829bc4bcb74^short_descriptionLIKEserver^ORDERBYDESCsys_created_on&sysparm_limit=2&sysparm_fields=sys_id,short_description,text" -u "branen:40=&?j:tH4" -H "Content-Type: application/json" -H "Accept: application/json"
+
+-- tester
+curl -X GET "https://thehublab.service-now.com/api/now/table/kb_knowledge?sysparm_query=short_descriptionLIKEserver^ORDERBYDESCsys_created_on&sysparm_limit=2&sysparm_fields=sys_id,number,short_description,text,category,subcategory,tags" -u "branen:40=&?j:tH4" -H "Content-Type: application/json" -H "Accept: application/json"
+
+
+
+-- get all kb
+curl -X GET "https://thehublab.service-now.com/api/now/table/kb_knowledge?sysparm_limit=12&sysparm_fields=sys_id,short_description" -u "branen:40=&?j:tH4" -H "Content-Type: application/json" -H "Accept: application/json"
+
+-- get with !kb
+curl -X GET "https://thehublab.service-now.com/api/now/table/kb_knowledge?sysparm_query=kb_knowledge_base!=1d4452d81b7318909c279829bc4bcb74&sysparm_limit=12&sysparm_fields=sys_id,short_description" -u "branen:40=&?j:tH4" -H "Content-Type: application/json" -H "Accept: application/json"
+
+
+-- get all kb tables
+curl -X GET "https://thehublab.service-now.com/api/now/table/sys_db_object?sysparm_query=sys_nameLIKEkb&sysparm_fields=name&sysparm_limit=11" -u "branen:40=&?j:tH4" -H "Content-Type: application/json" -H "Accept: application/json"
+
+
+-- to see every field:
+1 open the website and see sysid 
+2 then run this with a >> results.txt and then
+3 search for the text in the file and 
+4 read what the field is called beside the text
+curl -X GET "https://thehublab.service-now.com/api/now/table/incident?sysparm_query=sys_id=4a8f51e81bc520909c279829bc4bcb43&sysparm_limit=1" -u "branen:40=&?j:tH4" -H "Content-Type: application/json" -H "Accept: application/json"

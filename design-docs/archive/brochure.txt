@@ -1,0 +1,7 @@
+* Vast local corpus of stable information. This is unlike cloud AI which has a maximum awareness of 200 pages which must be manually pasted each session. 
+* Dynamic and realtime local information aware.
+* Private for sensitive data: This is unlike cloud AI which passes data through a multi-client and insecure asset owned by a different company.
+* Secured and auditable: All queries by staff are logged for audit purposes. All usage by staff is via role based access.
+* Integrates tightly into local applications
+
+
