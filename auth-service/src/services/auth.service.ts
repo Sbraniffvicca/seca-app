@@ -7,15 +7,13 @@ import { Conversations, updateConversations, Sessions } from '../repositories/in
 import * as dotenv from 'dotenv';
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ResetPasswordDto } from '../dto/reset-password.dto';
-import { join } from 'path';
-import path from 'path';
 import { readFileSync } from 'fs';
+import { config } from '../config';
 
 dotenv.config();
 
 
-const PUBLIC_KEY_PATH = join(__dirname, '../../pubkey/public.key');
-const PUBLIC_KEY = readFileSync(PUBLIC_KEY_PATH, 'utf-8');
+const PUBLIC_KEY = readFileSync(config.jwt.publicKeyPath, 'utf-8');
 
 @Injectable()
 export class AuthService 
@@ -89,7 +87,7 @@ private async generateAuthToken(jti: string): Promise<string>
 
   // Read the private key from the file system
   const privateKey = require('fs').readFileSync(
-    process.env.JWT_PRIVATE_KEY || './prvtkey/private.key',
+    config.jwt.privateKeyPath,
     'utf8',
   );
 
@@ -98,12 +96,11 @@ private async generateAuthToken(jti: string): Promise<string>
   }
 
   console.log('serviceslayer generateauthtoken - JWT Private Key loaded successfully from env');
-  const expiresIn = process.env.JWT_EXPIRES_IN || '7d'; 
-  const token = jwt.sign(payload, privateKey, 
-  {
-  algorithm: 'RS256',
-  expiresIn: '7d', // Ensure 7-day expiry is set
-  });
+  const signOptions: jwt.SignOptions = {
+    algorithm: 'RS256',
+    expiresIn: config.jwt.expiresIn as jwt.SignOptions['expiresIn'],
+  };
+  const token = jwt.sign(payload, privateKey, signOptions);
 
   console.log('serviceslayer generateauthtoken - Generated token:', token);
   // Decode and verify the expiratio

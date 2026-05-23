@@ -677,6 +677,22 @@ async getQuickPrompts(@Req() req: Request): Promise<{ message: string }> {
   return await this.chatService.getQuickPrompts(token);
 }
 
+@Get('creative-subconscious-drives')
+async getCreativeSubconsciousDrives(@Req() req: Request): Promise<{ message: string }> {
+  const token = req.cookies?.authToken;
+  if (!token) throw new UnauthorizedException('Missing token');
+
+  return await this.chatService.getCreativeSubconsciousDrives(token);
+}
+
+@Get('creative-relationship')
+async getCreativeRelationship(@Req() req: Request): Promise<{ message: string }> {
+  const token = req.cookies?.authToken;
+  if (!token) throw new UnauthorizedException('Missing token');
+
+  return await this.chatService.getCreativeRelationship(token);
+}
+
 // new
 
 @Post("creativeresponse")

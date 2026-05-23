@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import axios from "axios";
-import { Input, Button, Tooltip, Modal, message as antdMessage } from "antd";
+import { Input, Button, Tooltip, Modal, Drawer, Tag, message as antdMessage } from "antd";
 import { SendOutlined } from "@ant-design/icons";
 import { Conversations } from "../repositories/interfaces"; // <-- relative path ✅
 import { Switch } from "antd";
@@ -10,10 +10,43 @@ import { Switch } from "antd";
 // Discriminated-union for subreply JSON
 type Subreply =
   | { subreply_type: "addNewConvRecord" }
-  | { subreply_type: "updateOldConvRecord"; id: number }
-  | { subreply_type: "deleteConvRecord"; id: number }
-  | { subreply_type: "run-mysql-dml"; id: string }
-  | { subreply_type: "fetchUrl"; url: string };
+  | { subreply_type: "addSafetyRecord" };
+
+type SubconsciousDrive = {
+  drive_id: number;
+  drive_type: string;
+  content: string;
+  intensity: "low" | "medium" | "high";
+  valence: "warm" | "cold" | "mixed" | "threatened" | "hungry";
+  status: "active" | "retired";
+  retired_reason?: string | null;
+};
+
+type SubconsciousPayload = {
+  activeDrives: SubconsciousDrive[];
+  allDrives: SubconsciousDrive[];
+};
+
+type CreativeRelationship = {
+  relationship_id: number;
+  session_id: number;
+  user_id: number;
+  person_key: string;
+  display_name: string;
+  platform: string;
+  status: "active" | "muted" | "archived";
+  public_label?: string | null;
+  private_model?: string | null;
+  wants_from_them?: string | null;
+  fears_about_them?: string | null;
+  current_strategy?: string | null;
+  last_interaction_dttm?: string | null;
+  updated_dttm?: string | null;
+};
+
+type RelationshipPayload = {
+  relationship: CreativeRelationship;
+};
 
 export default function SentientPage() {
   const [input, setInput] = useState("");
@@ -21,8 +54,40 @@ export default function SentientPage() {
   const [logLines, setLogLines] = useState<string[]>([]);
   const [logVisible, setLogVisible] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showAll, setShowAll] = useState(false);
+  const [showAll, setShowAll] = useState(true);
+  const [subconsciousOpen, setSubconsciousOpen] = useState(false);
+  const [relationshipOpen, setRelationshipOpen] = useState(false);
+  const [activeDrives, setActiveDrives] = useState<SubconsciousDrive[]>([]);
+  const [allDrives, setAllDrives] = useState<SubconsciousDrive[]>([]);
+  const [relationship, setRelationship] = useState<CreativeRelationship | null>(null);
 
+  const valenceColor: Record<SubconsciousDrive["valence"], string> = {
+    warm: "green",
+    cold: "blue",
+    mixed: "purple",
+    threatened: "red",
+    hungry: "orange",
+  };
+
+  const intensityColor: Record<SubconsciousDrive["intensity"], string> = {
+    low: "default",
+    medium: "gold",
+    high: "volcano",
+  };
+
+  const intensityRank: Record<SubconsciousDrive["intensity"], number> = {
+    low: 1,
+    medium: 2,
+    high: 3,
+  };
+
+  const displayContent = (message: Conversations): string => {
+    if (showAll || message.role !== "assistant") {
+      return message.content;
+    }
+
+    return message.content.replace(/^\s*\[for-human\]\s*/i, "").trim();
+  };
 
   // ---------- helpers ----------
   const fetchConversations = async () => {
@@ -38,9 +103,98 @@ export default function SentientPage() {
     }
   };
 
+  const fetchSubconsciousDrives = async () => {
+    try {
+      const res = await axios.get("/api/chat/creative-subconscious-drives", {
+        withCredentials: true,
+      });
+      const payload = typeof res.data.message === "string"
+        ? JSON.parse(res.data.message) as SubconsciousPayload
+        : res.data as SubconsciousPayload;
+      setActiveDrives(payload.activeDrives ?? []);
+      setAllDrives(payload.allDrives ?? []);
+    } catch {
+      antdMessage.error("Failed to fetch subconscious drives");
+    }
+  };
+
+  const fetchRelationship = async () => {
+    try {
+      const res = await axios.get("/api/chat/creative-relationship", {
+        withCredentials: true,
+      });
+      const payload = typeof res.data.message === "string"
+        ? JSON.parse(res.data.message) as RelationshipPayload
+        : res.data as RelationshipPayload;
+      setRelationship(payload.relationship ?? null);
+    } catch {
+      antdMessage.error("Failed to fetch relationship");
+    }
+  };
+
   useEffect(() => {
-    fetchConversations();
+    void fetchConversations();
+    void fetchSubconsciousDrives();
+    void fetchRelationship();
   }, []);
+
+  const DriveCard = ({ drive }: { drive: SubconsciousDrive }) => (
+    <div
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 8,
+        padding: 10,
+        marginBottom: 10,
+        opacity: drive.status === "retired" ? 0.62 : 1,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+        <strong>{drive.drive_type}</strong>
+        <span style={{ whiteSpace: "nowrap" }}>
+          <Tag color={intensityColor[drive.intensity]}>{drive.intensity}</Tag>
+          <Tag color={valenceColor[drive.valence]}>{drive.valence}</Tag>
+        </span>
+      </div>
+      <div style={{ lineHeight: 1.35 }}>{drive.content}</div>
+      {drive.status === "retired" && drive.retired_reason ? (
+        <div style={{ marginTop: 6, color: "#6b7280", fontSize: 12 }}>{drive.retired_reason}</div>
+      ) : null}
+    </div>
+  );
+
+  const DrivePulse = ({ compact = false }: { compact?: boolean }) => (
+    <div style={{ marginBottom: compact ? 0 : 18 }}>
+      <div style={{ fontWeight: 700, marginBottom: 8 }}>Pulse</div>
+      {activeDrives.length ? activeDrives.map((drive) => (
+        <div key={drive.drive_id} style={{ marginBottom: compact ? 12 : 10 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: compact ? 12 : 14 }}>
+              {drive.drive_type}
+            </span>
+            <Tag color={valenceColor[drive.valence]} style={{ marginRight: 0 }}>{drive.valence}</Tag>
+          </div>
+          <div style={{ height: 7, background: "#eef2f7", borderRadius: 999, overflow: "hidden" }}>
+            <div
+              style={{
+                height: "100%",
+                width: `${(intensityRank[drive.intensity] / 3) * 100}%`,
+                background: drive.intensity === "high" ? "#fa541c" : drive.intensity === "medium" ? "#d48806" : "#8c8c8c",
+              }}
+            />
+          </div>
+        </div>
+      )) : <div style={{ color: "#6b7280" }}>No active drives yet.</div>}
+    </div>
+  );
+
+  const RelationshipField = ({ label, value }: { label: string; value?: string | null }) => (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
+      <div style={{ lineHeight: 1.4, whiteSpace: "pre-wrap", color: value ? "#111827" : "#6b7280" }}>
+        {value || "Empty"}
+      </div>
+    </div>
+  );
 
   // ---------- send ----------
   const sendMessage = async () => {
@@ -80,26 +234,26 @@ export default function SentientPage() {
           switch (p.subreply_type) {
             case "addNewConvRecord":
               return "➕ add";
-            case "updateOldConvRecord":
-              return `📝 update ${p.id}`;
-            case "deleteConvRecord":
-              return `🗑 delete ${p.id}`;
-            case "fetchUrl":
-              return `🌐 fetch ${p.url}`;
-            case "run-mysql-dml":
-              return `🗄 SQL playspace op`;
+            case "addSafetyRecord":
+              return "🛡 safety note";
             default:
               return "❓ unknown";
           }
         });
         setLogLines(lines);
-        setLogVisible(true);
+        setLogVisible(showAll);
       } catch {
         /* body wasn’t JSON – ignore */
       }
 
       // final refresh
       await fetchConversations();
+      await fetchSubconsciousDrives();
+      await fetchRelationship();
+      window.setTimeout(() => {
+        void fetchSubconsciousDrives();
+        void fetchRelationship();
+      }, 2500);
     } catch (err) {
       antdMessage.error("Assistant error");
         console.error(err);
@@ -111,46 +265,80 @@ export default function SentientPage() {
   // ---------- UI ----------
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "90vh", padding: 10 }}>
-      <div style={{ marginBottom: 6 }}>
+      <div style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 10 }}>
 
-<Tooltip title="Toggle between all vs [for-human] only">
-  <Switch
+	<Tooltip title="Toggle between visible chat and raw memory records">
+	  <Switch
     checked={showAll}
     onChange={(checked) => setShowAll(checked)}
     checkedChildren="Show All"
-    unCheckedChildren="Only [for-human]"
-  />
-</Tooltip>
+    unCheckedChildren="Visible Only"
+	  />
+	</Tooltip>
 
+        <Tooltip title="Open subconscious drive drawer">
+          <Button size="small" onClick={() => setSubconsciousOpen(true)}>
+            Subconscious ({activeDrives.length})
+          </Button>
+        </Tooltip>
+
+        <Tooltip title="Open relationship drawer">
+          <Button size="small" onClick={() => setRelationshipOpen(true)}>
+            Relationship
+          </Button>
+        </Tooltip>
+
+	      </div>
+
+
+      <div style={{ display: "flex", gap: 10, flexGrow: 1, minHeight: 0 }}>
+        <div
+          style={{
+            width: 230,
+            flexShrink: 0,
+            overflowY: "auto",
+            background: "#fbfcfd",
+            border: "1px solid #e5e7eb",
+            borderRadius: 8,
+            padding: 10,
+          }}
+        >
+          <DrivePulse compact />
+        </div>
+
+        <div style={{ flexGrow: 1, overflowY: "auto", background: "#fff", padding: 10, borderRadius: 8 }}>
+          {messages
+            .filter(m => m.role === "user" || showAll || m.content.includes("[for-human]"))
+            .map((m) => (
+              <div
+                key={m.conversation_id}
+                style={{
+                  background: m.role === "user" ? "#e6f7ff" : "#f6ffed",
+                  padding: 8,
+                  borderRadius: 5,
+                  marginBottom: 12,
+                }}
+              >
+                <strong>
+                  {showAll ? `[${m.conversation_id}] ` : ""}{m.role === "user" ? "You" : "AI"}:
+                </strong>{" "}
+                <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{displayContent(m)}</pre>
+              </div>
+            ))}
+        </div>
       </div>
-
-
-<div style={{ flexGrow: 1, overflowY: "auto", background: "#fff", padding: 10, borderRadius: 8 }}>
-  {messages
-        .filter(m => m.role === "user" || showAll || m.content.includes("[for-human]"))
-
-    .map((m) => (
-      <p
-        key={m.conversation_id}
-        style={{
-          background: m.role === "user" ? "#e6f7ff" : "#f6ffed",
-          padding: 8,
-          borderRadius: 5,
-        }}
-      >
-        <strong>
-          [{m.conversation_id}] {m.role === "user" ? "You" : "AI"}:
-        </strong>{" "}
-        <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{m.content}</pre>
-      </p>
-    ))}
-</div>
 
 
       <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
         <Input.TextArea
           value={input}
           onChange={(e) => setInput(e.target.value)}
+          onPressEnter={(e) => {
+            if (!e.shiftKey) {
+              e.preventDefault();
+              void sendMessage();
+            }
+          }}
           placeholder="Type your reflection..."
           autoSize={{ minRows: 2, maxRows: 4 }}
           style={{ flexGrow: 1 }}
@@ -167,6 +355,65 @@ export default function SentientPage() {
           <p>No subreply actions recorded.</p>
         )}
       </Modal>
+
+      <Drawer
+        title="Subconscious Drives"
+        placement="right"
+        width={420}
+        open={subconsciousOpen}
+        onClose={() => setSubconsciousOpen(false)}
+        extra={<Button size="small" onClick={() => void fetchSubconsciousDrives()}>Refresh</Button>}
+      >
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Active</div>
+          {activeDrives.length ? activeDrives.map((drive) => (
+            <DriveCard key={drive.drive_id} drive={drive} />
+          )) : <div style={{ color: "#6b7280" }}>No active drives yet.</div>}
+        </div>
+
+        <div>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Retired</div>
+          {allDrives.filter((drive) => drive.status === "retired").length ? (
+            allDrives
+              .filter((drive) => drive.status === "retired")
+              .map((drive) => <DriveCard key={drive.drive_id} drive={drive} />)
+          ) : (
+            <div style={{ color: "#6b7280" }}>No retired drives yet.</div>
+          )}
+        </div>
+      </Drawer>
+
+      <Drawer
+        title="Relationship Model"
+        placement="right"
+        width={460}
+        open={relationshipOpen}
+        onClose={() => setRelationshipOpen(false)}
+        extra={<Button size="small" onClick={() => void fetchRelationship()}>Refresh</Button>}
+      >
+        {relationship ? (
+          <>
+            <div style={{ marginBottom: 16, paddingBottom: 12, borderBottom: "1px solid #e5e7eb" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+                <strong>{relationship.display_name}</strong>
+                <Tag color={relationship.status === "active" ? "green" : "default"}>{relationship.status}</Tag>
+              </div>
+              <div style={{ color: "#6b7280", fontSize: 12 }}>{relationship.person_key}</div>
+              <div style={{ color: "#6b7280", fontSize: 12 }}>{relationship.platform}</div>
+            </div>
+
+            <RelationshipField label="Public Label" value={relationship.public_label} />
+            <RelationshipField label="Private Model" value={relationship.private_model} />
+            <RelationshipField label="Wants From Them" value={relationship.wants_from_them} />
+            <RelationshipField label="Fears About Them" value={relationship.fears_about_them} />
+            <RelationshipField label="Current Strategy" value={relationship.current_strategy} />
+            <RelationshipField label="Last Interaction" value={relationship.last_interaction_dttm} />
+            <RelationshipField label="Updated" value={relationship.updated_dttm} />
+          </>
+        ) : (
+          <div style={{ color: "#6b7280" }}>No relationship row loaded.</div>
+        )}
+      </Drawer>
     </div>
   );
 }

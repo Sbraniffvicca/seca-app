@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { LoginDto } from '../dto/login.dto';
 import { ResetPasswordDto } from '../dto/reset-password.dto';
+import { config } from '../config';
 
 @Controller('auth')
 export class AuthController {
@@ -42,23 +43,13 @@ async resetPassword(@Body() resetPasswordDto: ResetPasswordDto, @Req() req: Requ
 
       console.log('controllerlayer process.env.NODE_ENV', process.env.NODE_ENV);
 
-res.cookie('authToken', token, {
-  httpOnly: true,
-  secure: true,
-  sameSite: 'lax',
-  domain: 'sensitivedata.ca', // ✅ FIXED
-  path: '/',
-});
-
-/*
- res.cookie('authToken', token, {
-    httpOnly: true,
-   secure: true,   // ⛔ Must be FALSE for localhost (HTTPS is required for Secure=True)
-  sameSite: 'lax', // 🚀 Allows cross-origin requests
-  domain: 'localhost', // ✅ Keeps cookie scoped to localhost
-  path: '/',
- });
-*/
+      res.cookie('authToken', token, {
+        httpOnly: true,
+        secure: config.cookie.secure,
+        sameSite: config.cookie.sameSite,
+        domain: config.cookie.domain,
+        path: '/',
+      });
 
       console.log('controllerlayer login end');
       return res.json({ token });

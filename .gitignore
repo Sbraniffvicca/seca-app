@@ -23,6 +23,7 @@ chat-service/infiniteloop/
 .env
 .env.*
 !.env.example
+.secrets/
 *.pem
 *.key
 

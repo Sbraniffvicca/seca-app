@@ -79,8 +79,7 @@ const ManageAccount = () => {
         <p>
 <strong> If your conversation is sensitive only use the local model, never use the cloud.</strong><br />
 <br />
-Otherwise, for speed, intelligence and 1M tokens, switch to Gemini Free-tier. Note: 2 questions per minute and 50 questions per day<br />
-Finally, once you have used up all your free Gemini questions, switch to OpenAI but be aware this is PAID<br />
+This app is currently configured to use OpenAI GPT-5.4 mini for cloud responses. OpenAI API usage is paid.<br />
         </p>
       ),
     },
@@ -107,10 +106,7 @@ Finally, once you have used up all your free Gemini questions, switch to OpenAI 
           style={{ width: "100%" }}
           loading={!viewUsers} // Disable until data is loaded
         >
-          <Option value="local_8B">Local 8B</Option>
-          <Option value="openai_4_mini">OpenAI 4 Mini</Option>
-          <Option value="gemini_freetier">Gemini Free-Tier</Option>
-          <Option value="openrouter">OpenRouter Free-Tier</Option>
+          <Option value="openai_4_mini">OpenAI GPT-5.4 Mini</Option>
         </Select>
       </Form.Item>
 

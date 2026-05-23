@@ -1,0 +1,11 @@
+tunnel: dfc1ae49-2308-415c-9f6b-5b38b8c45689
+credentials-file: /etc/cloudflared/creds.json
+
+no-chunked-encoding: true
+protocol: http2
+
+ingress:
+  - hostname: sensitivedata.ca
+    service: http://nginx:80
+
+  - service: http_status:404

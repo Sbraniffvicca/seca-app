@@ -1,10 +1,10 @@
 import { Injectable, Inject } from '@nestjs/common';
-import { Pool } from 'mysql2/promise';
+import { PgDatabase } from '../database';
 import { Conversations, updateConversations, auth_tokens, Users, viewUsers, updateUsers, Sessions } from './interfaces';
 
 @Injectable()
 export class AuthRepository {
-  constructor(@Inject('DATABASE_POOL') private readonly db: Pool) {}
+  constructor(@Inject('DATABASE_POOL') private readonly db: PgDatabase) {}
 
 
   async getviewUser(userId: number): Promise<viewUsers> {
@@ -61,7 +61,7 @@ export class AuthRepository {
     console.log('repolayer insertauthtoken start');
     const query = `
       INSERT INTO auth_tokens (user_id, jwt_token, jti, issued_at, expires_at)
-      VALUES (?, ?, ?, now(), DATE_ADD(NOW(), INTERVAL 7 DAY));
+      VALUES (?, ?, ?, now(), now() + interval '7 days');
     `;
     await this.db.execute(query, [userId, authToken, jti]);
     console.log('repolayer insertauthtoken end');

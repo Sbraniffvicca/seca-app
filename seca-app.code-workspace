@@ -1,0 +1,43 @@
+{
+  "folders": [
+    {
+      "name": "seca-app",
+      "path": "."
+    },
+    {
+      "name": "auth-service",
+      "path": "auth-service"
+    },
+    {
+      "name": "chat-service",
+      "path": "chat-service"
+    },
+    {
+      "name": "chat-ui",
+      "path": "chat-ui"
+    }
+  ],
+  "settings": {
+    "eslint.workingDirectories": [
+      { "directory": "auth-service", "changeProcessCWD": true },
+      { "directory": "chat-service", "changeProcessCWD": true },
+      { "directory": "chat-ui", "changeProcessCWD": true }
+    ],
+    "eslint.validate": ["javascript", "javascriptreact", "typescript", "typescriptreact"],
+    "editor.codeActionsOnSave": {
+      "source.fixAll.eslint": "explicit"
+    },
+    "files.exclude": {
+      "**/.next": true,
+      "**/coverage": true,
+      "**/dist": true
+    },
+    "search.exclude": {
+      "**/.next": true,
+      "**/coverage": true,
+      "**/dist": true,
+      "**/node_modules": true
+    },
+    "typescript.preferences.importModuleSpecifier": "non-relative"
+  }
+}

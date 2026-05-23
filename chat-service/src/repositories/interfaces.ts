@@ -99,6 +99,52 @@ export interface updateConversations {
   token_count?: number;
 }
 
+export interface CreativeSubconsciousDrive {
+  drive_id?: number;
+  session_id: number;
+  user_id: number;
+  drive_type: string;
+  content: string;
+  intensity: 'low' | 'medium' | 'high';
+  valence: 'warm' | 'cold' | 'mixed' | 'threatened' | 'hungry';
+  status: 'active' | 'retired';
+  created_from_conversation_id?: number;
+  retired_from_conversation_id?: number;
+  retired_reason?: string;
+  created_dttm?: string;
+  retired_dttm?: string;
+  updated_dttm?: string;
+}
+
+export interface CreativeSubconsciousRun {
+  run_id?: number;
+  session_id: number;
+  user_id: number;
+  status: 'running' | 'completed' | 'failed';
+  source_conversation_id?: number;
+  error_message?: string;
+  started_dttm?: string;
+  completed_dttm?: string;
+}
+
+export interface CreativeRelationship {
+  relationship_id?: number;
+  session_id: number;
+  user_id: number;
+  person_key: string;
+  display_name: string;
+  platform: string;
+  status: 'active' | 'muted' | 'archived';
+  public_label?: string | null;
+  private_model?: string | null;
+  wants_from_them?: string | null;
+  fears_about_them?: string | null;
+  current_strategy?: string | null;
+  last_interaction_dttm?: string | null;
+  created_dttm?: string;
+  updated_dttm?: string;
+}
+
 // ==========================
 // Interface: Sessions Table
 // ==========================
