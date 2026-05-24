@@ -39,7 +39,7 @@ async getEnabledRoleSessions(@Req() req: Request): Promise<{ message: string }> 
   @UsePipes(new ValidationPipe({ transform: true }))
   async updateUserSettings(
     @Req() req: Request,
-    @Body() body: { active_model: 'local_8B' | 'openai_4_mini' }
+    @Body() body: { active_model: 'local_8B' | 'openai_4_mini' | 'openai_4_regular' }
   ) {
       if (!req.cookies.authToken) {
       throw new BadRequestException('User not authenticated');
@@ -691,6 +691,14 @@ async getCreativeRelationship(@Req() req: Request): Promise<{ message: string }>
   if (!token) throw new UnauthorizedException('Missing token');
 
   return await this.chatService.getCreativeRelationship(token);
+}
+
+@Get('creative-beliefs')
+async getCreativeBeliefs(@Req() req: Request): Promise<{ message: string }> {
+  const token = req.cookies?.authToken;
+  if (!token) throw new UnauthorizedException('Missing token');
+
+  return await this.chatService.getCreativeBeliefs(token);
 }
 
 // new

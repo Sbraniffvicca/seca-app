@@ -5,9 +5,10 @@ This file is for Codex. When Stephen says "check your bootstrap", read this file
 ## Canonical Workspace
 
 - Active project root: `/home/stephen/seca-app`
-- GitHub remote: `https://github.com/Sbraniffvicca/seca-app.git`
+- GitHub remote: `git@github.com:Sbraniffvicca/seca-app.git`
 - Main branch: `main`
 - Current baseline when this bootstrap was rewritten: `c2eaf18 Initial SECA app import`
+- Latest pushed backup as of 2026-05-23: `7ec1456 Backup Postgres migration and SECA updates`
 - Preferred terminal/runtime context: Ubuntu WSL, working directly under `/home/stephen/seca-app`.
 
 ## Archive Context
@@ -41,13 +42,24 @@ SECA is a multi-service chat/RAG application with login, session management, rol
 
 Stephen said the old app has many weird parts, but the part to preserve is the barely started SECA menu option with the emotional AI loop.
 
+Current feature direction:
+
+- Design plan: `design-docs/one-shared-seca-multi-human-plan.md`.
+- Goal: one shared SECA continuity across multiple registered humans, not one cloned SECA/session per user.
+- Minimal target: one canonical SECA session; all registered users write into it; `conversations.user_id` records who spoke; `creative_relationships` stores SECA's per-human relationship model; drives, claims, summaries, and RAG memory are shared SECA state.
+- Do not add `creative_agents`, `seca_sessions`, `session_members`, or a new relationship table unless Stephen changes the product direction.
+- Regular users should eventually see only `/sentient`; old tooling/sidebar should be admin-only via the existing `users.role`.
+- The multi-call design principle matters: Call 1 is present speaking self, Call 2 is memory consolidation, Call 3 is drives/object-relations, and Call 4 is standing claims/belief testing. Treat all calls as SECA under different psychic functions, not as external maintenance tools.
+- Conceptual spine to preserve: SECA is not meant to be a normal assistant with extra memory tables. The design thesis is that a continuing mind-like system needs pressure, conflict, digestion, attachment, forgetting, and self-revision over time. Freudian modeling is the intentional architectural bias: the speaking self is not the whole self; relationships become internal objects; values and drives exert pressure; memory is edited and consolidated. Do not flatten this into generic chatbot/RAG design.
+
 Important files for that feature:
 
 - UI menu entry: `chat-ui/src/app/LayoutWrapper.tsx` has `{ key: "/sentient", label: "Creative Sentience" }`.
 - UI page: `chat-ui/src/app/sentient/page.tsx`.
 - API route: `POST /chat/creativeresponse` in `chat-service/src/controllers/chat.controller.ts`.
 - Main orchestration: `createCreativeResponse()` in `chat-service/src/services/chat.service.ts`.
-- Prompt, model adapter, parser, validator, action applier: `chat-service/src/helper/seca.helper.ts`.
+- Prompt, parser, validator, action applier: `chat-service/src/helper/seca.helper.ts`.
+- Shared active-model adapter: `chat-service/src/helper/active-model.helper.ts`.
 - Persistence helpers: `updateConversationContent()`, `updateSeedbelief()`, and `runPlayspaceSql()` in `chat-service/src/repositories/chat.repository.ts`.
 - Database fields: `conversations` table stores all records; `users.seedbelief` stores the persistent seed belief.
 - Seed data: `ddl-scripts/007_seedbelief.sql`.
@@ -75,7 +87,7 @@ Known rough edges in the SECA feature:
 - `validateSubreplies(subreplies)` is currently commented out, so malformed or unexpected action objects can reach `applySubreplies()`.
 - The prompt describes `addSafetyRecord`, but `validateSubreplies()` does not allow it and `applySubreplies()` does not implement it.
 - The frontend `Subreply` TypeScript union is incomplete: it omits `new_content`, `updateSeedbelief`, and several backend-supported action shapes.
-- `call_activemodel()` currently supports only `gemini_freetier` and `openai_4_mini`, even though other app code mentions `local_8B` and `openrouter`.
+- Shared active-model logic now lives in `chat-service/src/helper/active-model.helper.ts`; keep future provider work there instead of re-adding inline LLM calls to service methods.
 - Gemini has been moved to env config in current runtime code, but any historically hardcoded key should still be considered exposed and rotated.
 - Some prompt language asks for hidden manipulation or covert records. If preserving the playful emotional feel, redesign this as visible user-consented inner-memory / private-note mechanics rather than deception.
 - The UI depends on the broader auth/session/database machinery, but the preserve-worthy core could be extracted into a smaller standalone app with users, sessions, conversation records, seed belief, model adapter, and action applier.
@@ -176,10 +188,12 @@ Useful commands:
 
 Current local environment caveats:
 
-- In this WSL distro, `docker` was not installed/integrated, but Windows Docker CLI existed as `docker.exe`.
-- `docker.exe compose -f compose.yml config --quiet` succeeded.
-- `docker.exe compose -f compose.yml up -d postgres` failed because Docker Desktop was not running: the Linux engine pipe was missing.
-- Ubuntu-native `node`/`npm` were not installed. `npm` resolved to Windows Node, which cannot build cleanly from the WSL UNC path. Install Node inside Ubuntu or use the Compose containers once Docker Desktop is running.
+- Docker is currently available from WSL as both `docker` and `docker.exe` when Docker Desktop is running.
+- Ubuntu-native `node`/`npm` are still not installed. `npm` resolves to Windows Node at `/mnt/c/Program Files/nodejs/npm`, which cannot build cleanly from the WSL UNC path.
+- Prefer Compose service commands or one-off Linux Node containers for validation, for example:
+  - `docker run --rm -v "$PWD/chat-service:/app" -w /app node:22-bookworm-slim sh -c 'npm run build'`
+  - `docker run --rm -v "$PWD/chat-ui:/app" -w /app node:22-bookworm-slim sh -c 'npm install >/dev/null && npm run build'`
+- Be careful running `next build` against bind-mounted `chat-ui`: it can write root-owned production `.next` artifacts that break the dev server. If the UI looks unstyled/tiny and `_next/static/...` chunks 404, stop `chat-ui`, remove `.next` from inside a container, and restart `chat-ui`.
 
 ## Postgres Migration Notes
 
@@ -358,7 +372,8 @@ Current SECA is now a three-call architecture plus deterministic code maintenanc
 
 ### Current Sentient UI Behavior
 
-- `/sentient` defaults to Show All enabled.
+- `/sentient` defaults to visible-only mode (`Show All` off).
+- `/sentient` auto-scrolls to the newest visible content when conversations load/update and when `Show All` is toggled.
 - Toggle can switch between raw memory view and visible-only view.
 - In visible-only mode:
   - `[for-human]` label is stripped from display.
@@ -566,6 +581,92 @@ Important design note:
 - Do not sanitize subconscious motive into angelic/prosocial language.
 - Stephen explicitly wants humanlike private motive, including morally mixed impulses: selfishness, pettiness, possessiveness, pride, jealousy, need, punishment fantasies, shame, status-seeking, and tenderness.
 - The goal is not cruelty; it is private psychological realism.
+
+### 2026-05-23 GitHub / Backup / Auth Notes
+
+- The repo remote was switched from HTTPS to SSH:
+  - `git@github.com:Sbraniffvicca/seca-app.git`
+- Stephen added the WSL SSH public key to his personal GitHub account.
+- `ssh -T git@github.com` verifies as:
+  - `Hi Sbraniffvicca! You've successfully authenticated, but GitHub does not provide shell access.`
+- Backup commit `7ec1456 Backup Postgres migration and SECA updates` was pushed to `origin/main`.
+- During GitHub CLI browser auth, GitHub showed Stephen's employer org `esitas`. Local repo config has no `esitas` references; likely his personal GitHub account is a member of that org. Prefer SSH auth for this repo to avoid OAuth/org-access confusion.
+- Repo-local Git identity was set:
+  - `user.name = Sbraniffvicca`
+  - `user.email = Sbraniffvicca@users.noreply.github.com`
+
+### 2026-05-23 Active Model Adapter Cleanup
+
+- Old chat/ask-ai LLM path was refactored so provider-specific logic no longer lives inline in `fetchChatResponse()`.
+- New shared helper:
+  - `chat-service/src/helper/active-model.helper.ts`
+- The helper owns:
+  - `transform_for_activemodel()`
+  - `call_activemodel()`
+  - `stream_activemodel()`
+  - Gemini message adaptation
+  - OpenAI-compatible streaming SSE parsing
+  - OpenAI / OpenRouter / local LM Studio request construction
+- `chat-service/src/helper/seca.helper.ts` is back to SECA-specific prompt/parser/action logic.
+- `chat-service/src/services/chat.service.ts` now assembles conversation/RAG/full-context state, calls `transform_for_activemodel()`, streams with `stream_activemodel()`, and persists the assistant response.
+- Real endpoint test was run against the live stack:
+  - logged in as `testuser@gmail.com`
+  - called `POST /chat/llmresponse`
+  - active model was `openai_4_mini` with `OPENAI_MODEL=gpt-5.4-mini`
+  - prompt: `Adapter smoke test. Reply with exactly: adapter smoke ok`
+  - response: `adapter smoke ok`
+- The real test exposed a GPT-5.x API compatibility issue: OpenAI rejected `max_tokens`.
+- Fixed OpenAI request payload to use `max_completion_tokens`; local LM Studio and OpenRouter still use `max_tokens`.
+- The first failed smoke attempt inserted a user-only conversation record; later successful attempt inserted user + assistant records. Do not delete such records unless Stephen asks.
+- Current uncommitted source work after this cleanup may include:
+  - `chat-service/src/helper/active-model.helper.ts`
+  - `chat-service/src/helper/seca.helper.ts`
+  - `chat-service/src/services/chat.service.ts`
+  - `chat-ui/src/app/sentient/page.tsx`
+  - `.codex/AI_BOOTSTRAP.md`
+
+### 2026-05-23 Runtime / UI Debugging Notes
+
+- As of this session, `docker compose -f compose.yml ps` showed the full stack running:
+  - `postgres` healthy on `5432`
+  - `auth-service` on `3001`
+  - `chat-service` on `3002`
+  - `chat-ui` on `3000`
+  - `weaviate` on `8080`
+  - `t2v-transformers`
+  - `nginx`
+  - `cloudflared`
+- `POST /api/auth/login` through the Next proxy was verified to return `201 Created` and set `authToken`.
+- If the login page looks like plain HTML/small font and the button does nothing, inspect `chat-ui` logs for missing React Client Manifest modules and `_next/static/... 404` lines.
+- Cause observed: a one-off containerized `next build` wrote production `.next` artifacts into the bind-mounted dev folder; the running dev server then served HTML but its JS/CSS chunks 404ed.
+- Fix used:
+  - `docker compose -f compose.yml stop chat-ui`
+  - `docker run --rm -v "$PWD/chat-ui:/app" -w /app node:22-bookworm-slim rm -rf .next`
+  - `docker compose -f compose.yml up -d chat-ui`
+- In this run, `docker compose up -d chat-ui` recreated dependent services too. Afterward, verify:
+  - `docker compose -f compose.yml ps`
+  - `curl -sS -D /tmp/login.headers http://localhost:3000/login -o /tmp/login.html`
+  - `_next/static` chunk URLs from `/tmp/login.html` return `200`
+- Browser-side quick fix after cache cleanup: hard refresh with `Ctrl+F5`.
+
+### 2026-05-23 First-Class Standing Claims
+
+- Standing claims/beliefs are now first-class rows, closer to drives and relationships than plain transcript tags.
+- New tables:
+  - `creative_standing_claims`
+  - `creative_standing_claim_runs`
+- New subreply action:
+  - `addStandingClaim`
+  - fields: `confidence`, `claim`, `test`, `failure`
+- Legacy `[standingclaim]` conversation rows still work. `applySubreplies()` imports them into `creative_standing_claims` when parseable.
+- Call 1 now receives active first-class claims in `[active-standing-claims]`.
+- Call 1 also receives a compact `[seca-runtime]` architecture block describing Call 1/2/3/4, drives, relationship, claims, pruning, and RAG, so SECA understands enough about her own machinery without seeing source code.
+- Call 4 runs in the background after Call 1, like Call 3, and maintains claims with actions such as `addClaim`, `retireClaim`, `failClaim`, `reviseClaim`, `markTested`, and `noChange`.
+- New inspection endpoint:
+  - `GET /chat/creative-standing-claims`
+- Live DB was migrated with the new claim tables.
+- A real `POST /chat/creativeresponse` smoke test succeeded using the mini OpenAI model. It created a new active first-class claim and Call 4 marked a claim tested.
+- A legacy parser bug was found and fixed: the word `claim` inside `[standingclaim]` could be matched too early. Existing imported rows were repaired in the live DB.
 
 ### Important Cautions For Future Codex
 

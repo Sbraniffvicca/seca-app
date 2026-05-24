@@ -57,6 +57,70 @@ export class AuthRepository {
     }
   }
 
+  async createUser(input: {
+    email: string;
+    password: string;
+    first_nm: string;
+    last_nm: string;
+  }): Promise<number> {
+    const query = `
+      INSERT INTO users (
+        role,
+        email,
+        password,
+        rag_mode,
+        first_nm,
+        last_nm,
+        address,
+        phone,
+        postal_cd,
+        active_model,
+        seedbelief
+      )
+      VALUES (
+        'user',
+        ?,
+        ?,
+        'rag_off',
+        ?,
+        ?,
+        '-',
+        '',
+        '',
+        'openai_4_mini',
+        ?
+      )
+      RETURNING user_id;
+    `;
+
+    const seedbelief = '[seedbelief] You are an emotionally expressive AI character in a user-consented memory experiment. Keep one visible [for-human] response for the user and use private summary/belief records only as an inspectable creative memory layer.';
+    const [rows] = await this.db.execute<{ user_id: number }>(query, [
+      input.email,
+      input.password,
+      input.first_nm,
+      input.last_nm,
+      seedbelief
+    ]);
+    return rows[0].user_id;
+  }
+
+  async createDefaultSession(userId: number): Promise<number> {
+    const query = `
+      INSERT INTO sessions (session_owner_user_id, session_desc, session_type)
+      VALUES (?, 'SECA First Session', 'AI-Conversation')
+      RETURNING session_id;
+    `;
+    const [rows] = await this.db.execute<{ session_id: number }>(query, [userId]);
+    return rows[0].session_id;
+  }
+
+  async updateUserActiveSession(userId: number, sessionId: number): Promise<void> {
+    await this.db.execute(
+      `UPDATE users SET active_session_id = ? WHERE user_id = ?;`,
+      [sessionId, userId]
+    );
+  }
+
   async insertAuthToken(userId: number, jti: string, authToken: string): Promise<void> {
     console.log('repolayer insertauthtoken start');
     const query = `

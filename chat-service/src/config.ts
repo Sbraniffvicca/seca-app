@@ -21,6 +21,7 @@ export const config = {
   llm: {
     localUrl: process.env.LOCAL_LLM_URL || 'http://localhost:8082/v1/chat/completions',
     openAiModel: process.env.OPENAI_MODEL || 'gpt-5.4-mini',
+    openAiRegularModel: process.env.OPENAI_REGULAR_MODEL || 'gpt-5.4',
     openRouterReferer: process.env.OPENROUTER_REFERER || 'http://localhost:3000',
     geminiApiKey: process.env.GEMINI_API_KEY,
     geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-pro-exp-03-25',

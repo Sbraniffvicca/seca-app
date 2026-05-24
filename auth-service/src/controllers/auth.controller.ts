@@ -4,6 +4,7 @@ import { Request, Response } from 'express';
 import { AuthService } from '../services/auth.service';
 import { LoginDto } from '../dto/login.dto';
 import { ResetPasswordDto } from '../dto/reset-password.dto';
+import { RegisterDto } from '../dto/register.dto';
 import { config } from '../config';
 
 @Controller('auth')
@@ -57,6 +58,27 @@ async resetPassword(@Body() resetPasswordDto: ResetPasswordDto, @Req() req: Requ
     } catch (error) {
       console.error('controllerlayer login error:', error);
       throw new BadRequestException('Invalid login credentials.');
+    }
+  }
+
+  @Post('register')
+  @UsePipes(new ValidationPipe({ transform: true }))
+  async register(@Body() registerDto: RegisterDto, @Res() res: Response) {
+    try {
+      const token = await this.authService.register(registerDto);
+
+      res.cookie('authToken', token, {
+        httpOnly: true,
+        secure: config.cookie.secure,
+        sameSite: config.cookie.sameSite,
+        domain: config.cookie.domain,
+        path: '/',
+      });
+
+      return res.status(HttpStatus.CREATED).json({ token });
+    } catch (error) {
+      console.error('controllerlayer register error:', error);
+      throw new BadRequestException(error.message || 'Registration failed.');
     }
   }
 }

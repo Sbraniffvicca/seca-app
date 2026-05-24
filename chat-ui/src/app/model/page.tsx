@@ -79,7 +79,7 @@ const ManageAccount = () => {
         <p>
 <strong> If your conversation is sensitive only use the local model, never use the cloud.</strong><br />
 <br />
-This app is currently configured to use OpenAI GPT-5.4 mini for cloud responses. OpenAI API usage is paid.<br />
+This app is currently configured with OpenAI mini and regular cloud options. OpenAI API usage is paid.<br />
         </p>
       ),
     },
@@ -107,6 +107,7 @@ This app is currently configured to use OpenAI GPT-5.4 mini for cloud responses.
           loading={!viewUsers} // Disable until data is loaded
         >
           <Option value="openai_4_mini">OpenAI GPT-5.4 Mini</Option>
+          <Option value="openai_4_regular">OpenAI GPT-5.4 Regular</Option>
         </Select>
       </Form.Item>
 

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Form, Input, Button, Typography, message } from "antd";
 
 const { Title } = Typography;
@@ -72,6 +73,9 @@ export default function LoginPage() {
           </Button>
         </Form.Item>
       </Form>
+      <Typography.Text>
+        New here? <Link href="/register">Create an account</Link>
+      </Typography.Text>
     </div>
   );
 }

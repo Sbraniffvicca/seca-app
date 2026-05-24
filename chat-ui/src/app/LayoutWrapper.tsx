@@ -47,8 +47,8 @@ const sidebarProps: Partial<SiderProps> = isMobile
     router.push(key);
   };
 
-  // Exclude layout for the login page
-  if (pathname === "/login") {
+  // Exclude layout for auth pages
+  if (pathname === "/login" || pathname === "/register") {
     return <>{children}</>;
   }
 

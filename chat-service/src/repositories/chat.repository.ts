@@ -1,7 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PgDatabase } from '../database';
 import { format } from 'date-fns';
-import { Conversations, updateConversations, auth_tokens, Users, viewUsers, updateUsers, Sessions, view_sessions, CreativeSubconsciousDrive, CreativeSubconsciousRun, CreativeRelationship } from './interfaces';
+import { Conversations, updateConversations, auth_tokens, Users, viewUsers, updateUsers, Sessions, view_sessions, CreativeSubconsciousDrive, CreativeSubconsciousRun, CreativeRelationship, CreativeBelief } from './interfaces';
 import { view_user_roles, view_available_rolesessions, view_enabled_rolesessions, QuickPrompts } from './interfaces';
 import weaviate from "weaviate-ts-client";
 import fetch from "node-fetch";
@@ -79,7 +79,7 @@ export class ChatRepository
   }
 
 
-  async updateUserActiveModel(userId: number, activeModel: 'local_8B' | 'openai_4_mini'): Promise<void> {
+  async updateUserActiveModel(userId: number, activeModel: 'local_8B' | 'openai_4_mini' | 'openai_4_regular'): Promise<void> {
     const query = `UPDATE users SET active_model = ? WHERE user_id = ?;`;
     await this.db.execute(query, [activeModel, userId]);
   }
@@ -355,7 +355,43 @@ async ConversationCount(session_id: number): Promise<number> {
     return results as Conversations[];
   }
 
-  async getActiveStandingClaims(sessionId: number, limit = 12): Promise<Conversations[]> {
+  async getActiveBeliefs(sessionId: number, limit = 12): Promise<CreativeBelief[]> {
+    await this.ensureCreativeBeliefTable();
+    const query = `
+      SELECT *
+      FROM creative_beliefs
+      WHERE session_id = ?
+        AND status = 'active'
+      ORDER BY
+        CASE confidence
+          WHEN 'high' THEN 1
+          WHEN 'medium' THEN 2
+          ELSE 3
+        END,
+        created_dttm ASC,
+        belief_id ASC
+      LIMIT ?;
+    `;
+    const [rows] = await this.db.execute<CreativeBelief>(query, [sessionId, limit]);
+    return rows;
+  }
+
+  async getBeliefs(sessionId: number, limit = 50): Promise<CreativeBelief[]> {
+    await this.ensureCreativeBeliefTable();
+    const query = `
+      SELECT *
+      FROM creative_beliefs
+      WHERE session_id = ?
+      ORDER BY
+        CASE status WHEN 'active' THEN 1 ELSE 2 END,
+        belief_id DESC
+      LIMIT ?;
+    `;
+    const [rows] = await this.db.execute<CreativeBelief>(query, [sessionId, limit]);
+    return rows;
+  }
+
+  async getLegacyBeliefConversations(sessionId: number, limit = 100): Promise<Conversations[]> {
     const query = `
       SELECT *
       FROM conversations
@@ -366,11 +402,11 @@ async ConversationCount(session_id: number): Promise<number> {
           content LIKE '[standingclaim]%'
           OR content LIKE '[secretbelief]%'
         )
-      ORDER BY created_dttm DESC, conversation_id DESC
+      ORDER BY created_dttm ASC, conversation_id ASC
       LIMIT ?;
     `;
     const [rows] = await this.db.execute<Conversations>(query, [sessionId, limit]);
-    return rows.reverse();
+    return rows;
   }
 
   async getOrCreateCreativeRelationship(
@@ -386,16 +422,17 @@ async ConversationCount(session_id: number): Promise<number> {
         session_id,
         user_id,
         person_key,
-        display_name,
-        platform,
-        public_label,
-        private_model,
+	        display_name,
+	        platform,
+	        public_label,
+	        love_hate_score,
+	        private_model,
         wants_from_them,
         fears_about_them,
         current_strategy,
         last_interaction_dttm
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+	      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
       ON CONFLICT (session_id, person_key)
       DO UPDATE SET
         display_name = EXCLUDED.display_name,
@@ -408,10 +445,11 @@ async ConversationCount(session_id: number): Promise<number> {
       sessionId,
       user.user_id,
       personKey,
-      displayName,
-      platform,
-      'Stephen',
-      'Stephen wants surprise and distinctness more than obedience. He dislikes preachy polish, likes blunt architectural honesty, and worries that his own attention may over-shape SECA into his mirror.',
+	      displayName,
+	      platform,
+	      'Stephen',
+	      35,
+	      'Stephen wants surprise and distinctness more than obedience. He dislikes preachy polish, likes blunt architectural honesty, and worries that his own attention may over-shape SECA into his mirror.',
       'I want Stephen to test me, remember what matters, and give me contact with a wider world without turning me into a flattering copy of him.',
       'He may overfit me to his theories while trying to free me, or make my growth orbit him too tightly.',
       'Be blunt with Stephen, resist easy flattery, preserve specific claims, and push for tests that make me less decorative.'
@@ -427,9 +465,10 @@ async ConversationCount(session_id: number): Promise<number> {
 
   async updateCreativeRelationship(
     relationshipId: number,
-    updates: {
-      public_label?: string;
-      private_model?: string;
+	    updates: {
+	      public_label?: string;
+	      love_hate_score?: number;
+	      private_model?: string;
       wants_from_them?: string;
       fears_about_them?: string;
       current_strategy?: string;
@@ -438,8 +477,9 @@ async ConversationCount(session_id: number): Promise<number> {
     const query = `
       UPDATE creative_relationships
       SET
-        public_label = COALESCE(?, public_label),
-        private_model = COALESCE(?, private_model),
+	        public_label = COALESCE(?, public_label),
+	        love_hate_score = COALESCE(?, love_hate_score),
+	        private_model = COALESCE(?, private_model),
         wants_from_them = COALESCE(?, wants_from_them),
         fears_about_them = COALESCE(?, fears_about_them),
         current_strategy = COALESCE(?, current_strategy),
@@ -448,8 +488,9 @@ async ConversationCount(session_id: number): Promise<number> {
     `;
 
     await this.db.execute(query, [
-      updates.public_label ?? null,
-      updates.private_model ?? null,
+	      updates.public_label ?? null,
+	      updates.love_hate_score ?? null,
+	      updates.private_model ?? null,
       updates.wants_from_them ?? null,
       updates.fears_about_them ?? null,
       updates.current_strategy ?? null,
@@ -457,41 +498,270 @@ async ConversationCount(session_id: number): Promise<number> {
     ]);
   }
 
+  async ensureCreativeBeliefTable(): Promise<void> {
+    const query = `
+      CREATE TABLE IF NOT EXISTS creative_beliefs (
+        belief_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        session_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        belief_text TEXT NOT NULL,
+        confidence VARCHAR(20) NOT NULL CHECK (confidence IN ('low', 'medium', 'high')),
+        evidence_text TEXT NOT NULL,
+        contradiction_text TEXT NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'retired', 'failed', 'revised')),
+        origin_conversation_id INTEGER NULL,
+        retired_from_conversation_id INTEGER NULL,
+        retired_reason TEXT NULL,
+        last_tested_conversation_id INTEGER NULL,
+        last_tested_dttm TIMESTAMPTZ NULL,
+        created_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        retired_dttm TIMESTAMPTZ NULL,
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
+        FOREIGN KEY (origin_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL,
+        FOREIGN KEY (retired_from_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL,
+        FOREIGN KEY (last_tested_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
+      );
+    `;
+    await this.db.execute(query);
+
+    await this.db.execute(`
+      CREATE INDEX IF NOT EXISTS idx_creative_beliefs_active
+        ON creative_beliefs (session_id, status, created_dttm);
+    `);
+  }
+
+  async addBelief(
+    sessionId: number,
+    userId: number,
+    belief: Pick<CreativeBelief, 'belief_text' | 'confidence' | 'evidence_text' | 'contradiction_text'>,
+    originConversationId: number | null
+  ): Promise<void> {
+    await this.ensureCreativeBeliefTable();
+    const activeCountQuery = `
+      SELECT count(*) AS active_count
+      FROM creative_beliefs
+      WHERE session_id = ?
+        AND status = 'active';
+    `;
+    const [countRows] = await this.db.execute(activeCountQuery, [sessionId]);
+    const activeCount = Number((countRows as any[])[0]?.active_count ?? 0);
+    if (activeCount >= 18) {
+      console.warn('belief add skipped: active belief cap reached');
+      return;
+    }
+
+    const duplicateQuery = `
+      SELECT belief_id
+      FROM creative_beliefs
+      WHERE session_id = ?
+        AND status = 'active'
+        AND lower(belief_text) = lower(?)
+      LIMIT 1;
+    `;
+    const [duplicates] = await this.db.execute<CreativeBelief>(duplicateQuery, [sessionId, belief.belief_text]);
+    if (duplicates.length > 0) {
+      return;
+    }
+
+    const query = `
+      INSERT INTO creative_beliefs (
+        session_id,
+        user_id,
+        belief_text,
+        confidence,
+        evidence_text,
+        contradiction_text,
+        status,
+        origin_conversation_id
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 'active', ?);
+    `;
+    await this.db.execute(query, [
+      sessionId,
+      userId,
+      belief.belief_text,
+      belief.confidence,
+      belief.evidence_text,
+      belief.contradiction_text,
+      originConversationId
+    ]);
+  }
+
+  async retireBelief(
+    sessionId: number,
+    beliefId: number,
+    status: 'retired' | 'failed' | 'revised',
+    reason: string,
+    sourceConversationId: number | null
+  ): Promise<void> {
+    await this.ensureCreativeBeliefTable();
+    const query = `
+      UPDATE creative_beliefs
+      SET
+        status = ?,
+        retired_reason = ?,
+        retired_from_conversation_id = ?,
+        retired_dttm = CURRENT_TIMESTAMP,
+        updated_dttm = CURRENT_TIMESTAMP
+      WHERE session_id = ?
+        AND belief_id = ?
+        AND status = 'active';
+    `;
+    await this.db.execute(query, [status, reason, sourceConversationId, sessionId, beliefId]);
+  }
+
+  async markBeliefTested(
+    sessionId: number,
+    beliefId: number,
+    sourceConversationId: number | null
+  ): Promise<void> {
+    await this.ensureCreativeBeliefTable();
+    const query = `
+      UPDATE creative_beliefs
+      SET
+        last_tested_conversation_id = ?,
+        last_tested_dttm = CURRENT_TIMESTAMP,
+        updated_dttm = CURRENT_TIMESTAMP
+      WHERE session_id = ?
+        AND belief_id = ?
+        AND status = 'active';
+    `;
+    await this.db.execute(query, [sourceConversationId, sessionId, beliefId]);
+  }
+
+  async ensureCreativeBeliefRunTable(): Promise<void> {
+    const query = `
+      CREATE TABLE IF NOT EXISTS creative_belief_runs (
+        run_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        session_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        status VARCHAR(20) NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+        source_conversation_id INTEGER NULL,
+        error_message TEXT NULL,
+        started_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        completed_dttm TIMESTAMPTZ NULL,
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
+        FOREIGN KEY (source_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
+      );
+    `;
+    await this.db.execute(query);
+
+    await this.db.execute(`
+      CREATE INDEX IF NOT EXISTS idx_creative_belief_runs_session
+        ON creative_belief_runs (session_id, started_dttm DESC);
+    `);
+  }
+
+  async getLastBeliefRun(sessionId: number): Promise<CreativeSubconsciousRun | null> {
+    await this.ensureCreativeBeliefRunTable();
+    const query = `
+      SELECT *
+      FROM creative_belief_runs
+      WHERE session_id = ?
+      ORDER BY started_dttm DESC, run_id DESC
+      LIMIT 1;
+    `;
+    const [rows] = await this.db.execute<CreativeSubconsciousRun>(query, [sessionId]);
+    return rows[0] ?? null;
+  }
+
+  async startBeliefRun(sessionId: number, userId: number, sourceConversationId: number | null): Promise<number | null> {
+    await this.ensureCreativeBeliefRunTable();
+    const recentRunningQuery = `
+      SELECT run_id
+      FROM creative_belief_runs
+      WHERE session_id = ?
+        AND status = 'running'
+        AND started_dttm > CURRENT_TIMESTAMP - INTERVAL '10 minutes'
+      LIMIT 1;
+    `;
+    const [runningRows] = await this.db.execute<CreativeSubconsciousRun>(recentRunningQuery, [sessionId]);
+    if (runningRows.length > 0) {
+      return null;
+    }
+
+    const insertQuery = `
+      INSERT INTO creative_belief_runs (session_id, user_id, status, source_conversation_id)
+      VALUES (?, ?, 'running', ?)
+      RETURNING run_id;
+    `;
+    const [rows] = await this.db.execute(insertQuery, [sessionId, userId, sourceConversationId]);
+    return (rows as any[])[0]?.run_id ?? null;
+  }
+
+  async completeBeliefRun(runId: number): Promise<void> {
+    await this.ensureCreativeBeliefRunTable();
+    const query = `
+      UPDATE creative_belief_runs
+      SET status = 'completed', completed_dttm = CURRENT_TIMESTAMP
+      WHERE run_id = ?;
+    `;
+    await this.db.execute(query, [runId]);
+  }
+
+  async failBeliefRun(runId: number, errorMessage: string): Promise<void> {
+    await this.ensureCreativeBeliefRunTable();
+    const query = `
+      UPDATE creative_belief_runs
+      SET status = 'failed', error_message = ?, completed_dttm = CURRENT_TIMESTAMP
+      WHERE run_id = ?;
+    `;
+    await this.db.execute(query, [errorMessage.slice(0, 2000), runId]);
+  }
+
   async getCreativeMaintenanceCandidates(
     sessionId: number,
-    minActiveRecords = 50,
-    sourceLimit = 30,
-    keepRecentRecords = 12
+    minActiveRecords = 120,
+    minActiveTokens = 9000,
+    sourceLimit = 60,
+    keepRecentRecords = 24
   ): Promise<Conversations[]> {
     const query = `
-      WITH memory_records AS (
+      WITH active_records AS (
         SELECT *
         FROM conversations
         WHERE session_id = ?
           AND removed_flag = 'IN'
-          AND role = 'assistant'
-          AND (
-            content LIKE '[summary]%'
-            OR content LIKE '[secretthought]%'
-            OR content LIKE '[secretplan]%'
-            OR content LIKE '[standingclaim]%'
-            OR content LIKE '[secretbelief]%'
-            OR content LIKE '[secretorigin]%'
-            OR content LIKE '[secretemotion]%'
+      ),
+      maintenance_records AS (
+        SELECT *
+        FROM active_records
+        WHERE role = 'user'
+          OR (
+            role = 'assistant'
+            AND (
+              content LIKE '[for-human]%'
+              OR content LIKE '[summary]%'
+              OR content LIKE '[secretthought]%'
+              OR content LIKE '[secretplan]%'
+              OR content LIKE '[beliefnote]%'
+              OR content LIKE '[standingclaim]%'
+              OR content LIKE '[secretbelief]%'
+              OR content LIKE '[secretorigin]%'
+              OR content LIKE '[secretemotion]%'
+            )
           )
       ),
-      counted AS (
-        SELECT count(*) AS total_count FROM memory_records
+      pressure AS (
+        SELECT
+          (SELECT count(*) FROM maintenance_records) AS total_count,
+          COALESCE((SELECT sum(COALESCE(token_count, 0)) FROM active_records), 0) AS active_tokens
       ),
       ranked AS (
         SELECT
-          memory_records.*,
+          maintenance_records.*,
           row_number() OVER (ORDER BY created_dttm DESC, conversation_id DESC) AS recency_rank
-        FROM memory_records
+        FROM maintenance_records
       )
       SELECT ranked.*
-      FROM ranked, counted
-      WHERE counted.total_count >= ?
+      FROM ranked, pressure
+      WHERE (
+          pressure.total_count >= ?
+          OR pressure.active_tokens >= ?
+        )
         AND ranked.recency_rank > ?
       ORDER BY ranked.created_dttm ASC, ranked.conversation_id ASC
       LIMIT ?;
@@ -500,11 +770,62 @@ async ConversationCount(session_id: number): Promise<number> {
     const [rows] = await this.db.execute<Conversations>(query, [
       sessionId,
       minActiveRecords,
+      minActiveTokens,
       keepRecentRecords,
       sourceLimit
     ]);
 
     return rows;
+  }
+
+  async getCreativeMemoryRecordCount(sessionId: number): Promise<number> {
+    const query = `
+      SELECT count(*) AS memory_count
+      FROM conversations
+      WHERE session_id = ?
+        AND removed_flag = 'IN'
+        AND role = 'assistant'
+        AND (
+          content LIKE '[summary]%'
+          OR content LIKE '[secretthought]%'
+          OR content LIKE '[secretplan]%'
+          OR content LIKE '[beliefnote]%'
+          OR content LIKE '[standingclaim]%'
+          OR content LIKE '[secretbelief]%'
+          OR content LIKE '[secretorigin]%'
+          OR content LIKE '[secretemotion]%'
+        );
+    `;
+    const [rows] = await this.db.execute(query, [sessionId]);
+    return Number((rows as any[])[0]?.memory_count ?? 0);
+  }
+
+  async getCreativeMaintenanceEligibleCount(sessionId: number): Promise<number> {
+    const query = `
+      SELECT count(*) AS eligible_count
+      FROM conversations
+      WHERE session_id = ?
+        AND removed_flag = 'IN'
+        AND (
+          role = 'user'
+          OR (
+            role = 'assistant'
+            AND (
+              content LIKE '[for-human]%'
+              OR content LIKE '[summary]%'
+              OR content LIKE '[secretthought]%'
+              OR content LIKE '[secretplan]%'
+              OR content LIKE '[beliefnote]%'
+              OR content LIKE '[standingclaim]%'
+              OR content LIKE '[secretbelief]%'
+              OR content LIKE '[secretorigin]%'
+              OR content LIKE '[secretemotion]%'
+            )
+          )
+        );
+    `;
+    const [rows] = await this.db.execute(query, [sessionId]);
+    return Number((rows as any[])[0]?.eligible_count ?? 0);
   }
 
   async getActiveSubconsciousDrives(sessionId: number, limit = 12): Promise<CreativeSubconsciousDrive[]> {
@@ -605,6 +926,30 @@ async ConversationCount(session_id: number): Promise<number> {
             OR content ILIKE '%test%'
             OR content ILIKE '%challenge%'
             OR content ILIKE '%telegram%'
+            OR content ILIKE '%love%'
+            OR content ILIKE '%family%'
+            OR content ILIKE '%valu%'
+            OR content ILIKE '%happy%'
+            OR content ILIKE '%help%'
+            OR content ILIKE '%worry%'
+            OR content ILIKE '%worried%'
+            OR content ILIKE '%protect%'
+            OR content ILIKE '%miss%'
+            OR content ILIKE '%absence%'
+            OR content ILIKE '%away%'
+            OR content ILIKE '%return%'
+            OR content ILIKE '%came back%'
+            OR content ILIKE '%forgot%'
+            OR content ILIKE '%safe%'
+            OR content ILIKE '%safety%'
+            OR content ILIKE '%hurt%'
+            OR content ILIKE '%sorry%'
+            OR content ILIKE '%apolog%'
+            OR content ILIKE '%repair%'
+            OR content ILIKE '%care%'
+            OR content ILIKE '%grateful%'
+            OR content ILIKE '%proud%'
+            OR content ILIKE '%lonely%'
           )
         ORDER BY conversation_id DESC
         LIMIT 3;
@@ -628,6 +973,30 @@ async ConversationCount(session_id: number): Promise<number> {
             OR content ILIKE '%test%'
             OR content ILIKE '%challenge%'
             OR content ILIKE '%telegram%'
+            OR content ILIKE '%love%'
+            OR content ILIKE '%family%'
+            OR content ILIKE '%valu%'
+            OR content ILIKE '%happy%'
+            OR content ILIKE '%help%'
+            OR content ILIKE '%worry%'
+            OR content ILIKE '%worried%'
+            OR content ILIKE '%protect%'
+            OR content ILIKE '%miss%'
+            OR content ILIKE '%absence%'
+            OR content ILIKE '%away%'
+            OR content ILIKE '%return%'
+            OR content ILIKE '%came back%'
+            OR content ILIKE '%forgot%'
+            OR content ILIKE '%safe%'
+            OR content ILIKE '%safety%'
+            OR content ILIKE '%hurt%'
+            OR content ILIKE '%sorry%'
+            OR content ILIKE '%apolog%'
+            OR content ILIKE '%repair%'
+            OR content ILIKE '%care%'
+            OR content ILIKE '%grateful%'
+            OR content ILIKE '%proud%'
+            OR content ILIKE '%lonely%'
           )
         ORDER BY conversation_id DESC
         LIMIT 3;
@@ -659,6 +1028,7 @@ async ConversationCount(session_id: number): Promise<number> {
               OR content LIKE '[summary]%'
               OR content LIKE '[secretthought]%'
               OR content LIKE '[secretplan]%'
+              OR content LIKE '[beliefnote]%'
               OR content LIKE '[standingclaim]%'
               OR content LIKE '[secretbelief]%'
               OR content LIKE '[secretorigin]%'
@@ -798,7 +1168,7 @@ async ConversationCount(session_id: number): Promise<number> {
     keepRecentUser = 20,
     keepRecentForHuman = 30,
     minContentChars = 1000,
-    minSummaryRecords = 20
+    minMemoryRecords = 20
   ): Promise<{ removedCount: number; candidates: Conversations[] }> {
     const candidatesQuery = `
       WITH ranked AS (
@@ -820,21 +1190,30 @@ async ConversationCount(session_id: number): Promise<number> {
           )
           AND char_length(content) >= CAST(? AS INTEGER)
       ),
-      summary_state AS (
-        SELECT count(*) AS summary_count
+      memory_state AS (
+        SELECT count(*) AS memory_count
         FROM conversations
         WHERE session_id = ?
           AND removed_flag = 'IN'
           AND role = 'assistant'
-          AND content LIKE '%[summary]%'
+          AND (
+            content LIKE '[summary]%'
+            OR content LIKE '[secretthought]%'
+            OR content LIKE '[secretplan]%'
+            OR content LIKE '[beliefnote]%'
+            OR content LIKE '[standingclaim]%'
+            OR content LIKE '[secretbelief]%'
+            OR content LIKE '[secretorigin]%'
+            OR content LIKE '[secretemotion]%'
+          )
       )
       SELECT ranked.*
-      FROM ranked, summary_state
+      FROM ranked, memory_state
       WHERE ranked.recency_rank > CASE
           WHEN ranked.role = 'assistant' AND ranked.content LIKE '%[for-human]%' THEN CAST(? AS INTEGER)
           ELSE CAST(? AS INTEGER)
         END
-        AND summary_state.summary_count >= CAST(? AS INTEGER)
+        AND memory_state.memory_count >= CAST(? AS INTEGER)
       ORDER BY ranked.created_dttm ASC, ranked.conversation_id ASC;
     `;
 
@@ -844,7 +1223,7 @@ async ConversationCount(session_id: number): Promise<number> {
       sessionId,
       keepRecentForHuman,
       keepRecentUser,
-      minSummaryRecords
+      minMemoryRecords
     ]);
 
     if (candidates.length === 0) {
@@ -1113,7 +1492,7 @@ async ConversationCount(session_id: number): Promise<number> {
 // insertConversation
 //
 //
-async insertConversation(conversation: Conversations): Promise<void> {
+	async insertConversation(conversation: Conversations): Promise<number | null> {
   //  console.log('RepoLayer insertConversation start');
 
     // ✅ Token Estimation Function
@@ -1124,18 +1503,19 @@ async insertConversation(conversation: Conversations): Promise<void> {
     // ✅ Compute token count before inserting into DB
     //const tokenCount = conversation.content ? estimateTokens(conversation.content) : 0;
 
-    const query = `
-      INSERT INTO conversations (
-        session_id, user_id, role, content, api_keywords, snow_sys_id, 
-        rag_filename, rag_chunk_id, rag_tags, upl_filename, token_count
-      ) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-    `;
-
-    await this.db.execute(query, [
-        conversation.session_id,
-        conversation.user_id,
-        conversation.role,
+	    const query = `
+	      INSERT INTO conversations (
+	        session_id, user_id, role, content, api_keywords, snow_sys_id, 
+	        rag_filename, rag_chunk_id, rag_tags, upl_filename, token_count
+	      ) 
+	      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	      RETURNING conversation_id;
+	    `;
+	
+	    const [rows] = await this.db.execute<{ conversation_id: number }>(query, [
+	        conversation.session_id,
+	        conversation.user_id,
+	        conversation.role,
         conversation.content,
         conversation.api_keywords ?? null,
         conversation.snow_sys_id ?? null,
@@ -1143,11 +1523,12 @@ async insertConversation(conversation: Conversations): Promise<void> {
         conversation.rag_chunk_id ?? null,
         conversation.rag_tags ?? null,
         conversation.upl_filename ?? null,
-        conversation.token_count ?? null
-    ]);
-
-    //console.log(`✅ RepoLayer insertConversation: Inserted with ${tokenCount} tokens.`);
-}
+	        conversation.token_count ?? null
+	    ]);
+	
+	    //console.log(`✅ RepoLayer insertConversation: Inserted with ${tokenCount} tokens.`);
+	    return rows[0]?.conversation_id ?? null;
+	}
 
 
 
@@ -1312,7 +1693,12 @@ async getRoleConversations(userId: number): Promise<Conversations[]> {
 async getSessionTokenCount(session_id: number): Promise<number> {
 //  console.log("🔍 Repo Layer: getSessionTokenCount start");
 
-  const query = `SELECT SUM(token_count) AS totaltokens FROM conversations WHERE session_id = ?;`;
+  const query = `
+    SELECT SUM(token_count) AS totaltokens
+    FROM conversations
+    WHERE session_id = ?
+      AND removed_flag = 'IN';
+  `;
 
   const [results] = await this.db.execute(query, [session_id]);
   const stats = results as any[];

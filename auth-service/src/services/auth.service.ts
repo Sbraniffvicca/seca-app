@@ -7,6 +7,7 @@ import { Conversations, updateConversations, Sessions } from '../repositories/in
 import * as dotenv from 'dotenv';
 import { Injectable, UnauthorizedException, BadRequestException } from '@nestjs/common';
 import { ResetPasswordDto } from '../dto/reset-password.dto';
+import { RegisterDto } from '../dto/register.dto';
 import { readFileSync } from 'fs';
 import { config } from '../config';
 
@@ -74,6 +75,29 @@ async login(email: string, password: string): Promise<string>
   await this.authRepository.insertAuthToken(user.user_id, jti, authToken);
   console.log('serviceslayer login end');
   return authToken; 
+}
+
+async register(registerDto: RegisterDto): Promise<string> {
+  const email = registerDto.email.trim().toLowerCase();
+  const existingUser = await this.authRepository.findUserByEmail(email);
+  if (existingUser) {
+    throw new BadRequestException('An account already exists for that email.');
+  }
+
+  const hashedPassword = await bcrypt.hash(registerDto.password, 10);
+  const firstName = registerDto.first_nm?.trim() || 'New';
+  const lastName = registerDto.last_nm?.trim() || 'User';
+
+  const userId = await this.authRepository.createUser({
+    email,
+    password: hashedPassword,
+    first_nm: firstName,
+    last_nm: lastName
+  });
+  const sessionId = await this.authRepository.createDefaultSession(userId);
+  await this.authRepository.updateUserActiveSession(userId, sessionId);
+
+  return this.login(email, registerDto.password);
 }
 
 

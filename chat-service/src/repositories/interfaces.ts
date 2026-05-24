@@ -136,6 +136,7 @@ export interface CreativeRelationship {
   platform: string;
   status: 'active' | 'muted' | 'archived';
   public_label?: string | null;
+  love_hate_score: number;
   private_model?: string | null;
   wants_from_them?: string | null;
   fears_about_them?: string | null;
@@ -143,6 +144,25 @@ export interface CreativeRelationship {
   last_interaction_dttm?: string | null;
   created_dttm?: string;
   updated_dttm?: string;
+}
+
+export interface CreativeBelief {
+  belief_id?: number;
+  session_id: number;
+  user_id: number;
+  belief_text: string;
+  confidence: 'low' | 'medium' | 'high';
+  evidence_text: string;
+  contradiction_text: string;
+  status: 'active' | 'retired' | 'failed' | 'revised';
+  origin_conversation_id?: number;
+  retired_from_conversation_id?: number;
+  retired_reason?: string;
+  last_tested_conversation_id?: number;
+  last_tested_dttm?: string;
+  created_dttm?: string;
+  updated_dttm?: string;
+  retired_dttm?: string;
 }
 
 // ==========================

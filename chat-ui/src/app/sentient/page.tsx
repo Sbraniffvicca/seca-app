@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { Input, Button, Tooltip, Modal, Drawer, Tag, message as antdMessage } from "antd";
 import { SendOutlined } from "@ant-design/icons";
@@ -36,6 +36,7 @@ type CreativeRelationship = {
   platform: string;
   status: "active" | "muted" | "archived";
   public_label?: string | null;
+  love_hate_score: number;
   private_model?: string | null;
   wants_from_them?: string | null;
   fears_about_them?: string | null;
@@ -48,18 +49,40 @@ type RelationshipPayload = {
   relationship: CreativeRelationship;
 };
 
+type Belief = {
+  belief_id: number;
+  belief_text: string;
+  confidence: "low" | "medium" | "high";
+  evidence_text: string;
+  contradiction_text: string;
+  status: "active" | "retired" | "failed" | "revised";
+  retired_reason?: string | null;
+  last_tested_dttm?: string | null;
+  updated_dttm?: string | null;
+  created_dttm?: string | null;
+};
+
+type BeliefsPayload = {
+  activeBeliefs: Belief[];
+  allBeliefs: Belief[];
+};
+
 export default function SentientPage() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Conversations[]>([]);
   const [logLines, setLogLines] = useState<string[]>([]);
   const [logVisible, setLogVisible] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [showAll, setShowAll] = useState(true);
+  const [showAll, setShowAll] = useState(false);
   const [subconsciousOpen, setSubconsciousOpen] = useState(false);
   const [relationshipOpen, setRelationshipOpen] = useState(false);
+  const [beliefsOpen, setBeliefsOpen] = useState(false);
   const [activeDrives, setActiveDrives] = useState<SubconsciousDrive[]>([]);
   const [allDrives, setAllDrives] = useState<SubconsciousDrive[]>([]);
   const [relationship, setRelationship] = useState<CreativeRelationship | null>(null);
+  const [activeBeliefs, setActiveBeliefs] = useState<Belief[]>([]);
+  const [allBeliefs, setAllBeliefs] = useState<Belief[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const valenceColor: Record<SubconsciousDrive["valence"], string> = {
     warm: "green",
@@ -79,6 +102,19 @@ export default function SentientPage() {
     low: 1,
     medium: 2,
     high: 3,
+  };
+
+  const beliefConfidenceColor: Record<Belief["confidence"], string> = {
+    low: "default",
+    medium: "gold",
+    high: "volcano",
+  };
+
+  const beliefStatusColor: Record<Belief["status"], string> = {
+    active: "green",
+    retired: "default",
+    failed: "red",
+    revised: "blue",
   };
 
   const displayContent = (message: Conversations): string => {
@@ -132,11 +168,31 @@ export default function SentientPage() {
     }
   };
 
+  const fetchBeliefs = async () => {
+    try {
+      const res = await axios.get("/api/chat/creative-beliefs", {
+        withCredentials: true,
+      });
+      const payload = typeof res.data.message === "string"
+        ? JSON.parse(res.data.message) as BeliefsPayload
+        : res.data as BeliefsPayload;
+      setActiveBeliefs(payload.activeBeliefs ?? []);
+      setAllBeliefs(payload.allBeliefs ?? []);
+    } catch {
+      antdMessage.error("Failed to fetch beliefs");
+    }
+  };
+
   useEffect(() => {
     void fetchConversations();
     void fetchSubconsciousDrives();
     void fetchRelationship();
+    void fetchBeliefs();
   }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ block: "end" });
+  }, [messages, showAll]);
 
   const DriveCard = ({ drive }: { drive: SubconsciousDrive }) => (
     <div
@@ -187,11 +243,74 @@ export default function SentientPage() {
     </div>
   );
 
+  const RelationshipAffect = ({ score }: { score: number }) => {
+    const clampedScore = Math.max(-100, Math.min(100, score ?? 0));
+    const markerLeft = ((clampedScore + 100) / 200) * 100;
+    const scoreColor = clampedScore > 35 ? "green" : clampedScore < -35 ? "red" : "gold";
+
+    return (
+      <div style={{ marginTop: 12 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 8 }}>
+          <strong>Love / Hate</strong>
+          <Tag color={scoreColor} style={{ marginRight: 0 }}>{clampedScore}</Tag>
+        </div>
+        <div style={{ position: "relative", height: 10, borderRadius: 999, background: "linear-gradient(90deg, #ef4444 0%, #f59e0b 50%, #22c55e 100%)" }}>
+          <div
+            style={{
+              position: "absolute",
+              top: -4,
+              left: `calc(${markerLeft}% - 5px)`,
+              width: 18,
+              height: 18,
+              borderRadius: 999,
+              background: "#ffffff",
+              border: "2px solid #111827",
+              boxShadow: "0 1px 4px rgba(17,24,39,0.25)",
+            }}
+          />
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", color: "#6b7280", fontSize: 11, marginTop: 5 }}>
+          <span>Hate</span>
+          <span>Neutral</span>
+          <span>Love</span>
+        </div>
+      </div>
+    );
+  };
+
   const RelationshipField = ({ label, value }: { label: string; value?: string | null }) => (
     <div style={{ marginBottom: 14 }}>
       <div style={{ fontWeight: 700, marginBottom: 4 }}>{label}</div>
       <div style={{ lineHeight: 1.4, whiteSpace: "pre-wrap", color: value ? "#111827" : "#6b7280" }}>
         {value || "Empty"}
+      </div>
+    </div>
+  );
+
+  const BeliefCard = ({ belief }: { belief: Belief }) => (
+    <div
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 8,
+        padding: 10,
+        marginBottom: 10,
+        opacity: belief.status === "active" ? 1 : 0.68,
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <strong>Belief #{belief.belief_id}</strong>
+        <span style={{ whiteSpace: "nowrap" }}>
+          <Tag color={beliefConfidenceColor[belief.confidence]}>{belief.confidence}</Tag>
+          <Tag color={beliefStatusColor[belief.status]} style={{ marginRight: 0 }}>{belief.status}</Tag>
+        </span>
+      </div>
+      <RelationshipField label="Belief" value={belief.belief_text} />
+      <RelationshipField label="What Shows It" value={belief.evidence_text} />
+      <RelationshipField label="What Complicates It" value={belief.contradiction_text} />
+      {belief.retired_reason ? <RelationshipField label="Retired Reason" value={belief.retired_reason} /> : null}
+      {belief.last_tested_dttm ? <RelationshipField label="Last Tested" value={belief.last_tested_dttm} /> : null}
+      <div style={{ color: "#6b7280", fontSize: 12 }}>
+        {belief.updated_dttm || belief.created_dttm || ""}
       </div>
     </div>
   );
@@ -250,9 +369,12 @@ export default function SentientPage() {
       await fetchConversations();
       await fetchSubconsciousDrives();
       await fetchRelationship();
+      await fetchBeliefs();
       window.setTimeout(() => {
+        void fetchConversations();
         void fetchSubconsciousDrives();
         void fetchRelationship();
+        void fetchBeliefs();
       }, 2500);
     } catch (err) {
       antdMessage.error("Assistant error");
@@ -276,15 +398,21 @@ export default function SentientPage() {
 	  />
 	</Tooltip>
 
-        <Tooltip title="Open subconscious drive drawer">
+        <Tooltip title="Open drives drawer">
           <Button size="small" onClick={() => setSubconsciousOpen(true)}>
-            Subconscious ({activeDrives.length})
+            Drives ({activeDrives.length})
           </Button>
         </Tooltip>
 
         <Tooltip title="Open relationship drawer">
           <Button size="small" onClick={() => setRelationshipOpen(true)}>
             Relationship
+          </Button>
+        </Tooltip>
+
+        <Tooltip title="Open beliefs drawer">
+          <Button size="small" onClick={() => setBeliefsOpen(true)}>
+            Beliefs ({activeBeliefs.length})
           </Button>
         </Tooltip>
 
@@ -325,6 +453,7 @@ export default function SentientPage() {
                 <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{displayContent(m)}</pre>
               </div>
             ))}
+          <div ref={messagesEndRef} />
         </div>
       </div>
 
@@ -357,7 +486,7 @@ export default function SentientPage() {
       </Modal>
 
       <Drawer
-        title="Subconscious Drives"
+        title="Drives"
         placement="right"
         width={420}
         open={subconsciousOpen}
@@ -400,9 +529,11 @@ export default function SentientPage() {
               </div>
               <div style={{ color: "#6b7280", fontSize: 12 }}>{relationship.person_key}</div>
               <div style={{ color: "#6b7280", fontSize: 12 }}>{relationship.platform}</div>
+              <RelationshipAffect score={relationship.love_hate_score ?? 0} />
             </div>
 
             <RelationshipField label="Public Label" value={relationship.public_label} />
+            <RelationshipField label="Love / Hate Score" value={String(relationship.love_hate_score ?? 0)} />
             <RelationshipField label="Private Model" value={relationship.private_model} />
             <RelationshipField label="Wants From Them" value={relationship.wants_from_them} />
             <RelationshipField label="Fears About Them" value={relationship.fears_about_them} />
@@ -413,6 +544,33 @@ export default function SentientPage() {
         ) : (
           <div style={{ color: "#6b7280" }}>No relationship row loaded.</div>
         )}
+      </Drawer>
+
+      <Drawer
+        title="Beliefs"
+        placement="right"
+        width={520}
+        open={beliefsOpen}
+        onClose={() => setBeliefsOpen(false)}
+        extra={<Button size="small" onClick={() => void fetchBeliefs()}>Refresh</Button>}
+      >
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Active</div>
+          {activeBeliefs.length ? activeBeliefs.map((belief) => (
+            <BeliefCard key={belief.belief_id} belief={belief} />
+          )) : <div style={{ color: "#6b7280" }}>No active beliefs yet.</div>}
+        </div>
+
+        <div>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Inactive</div>
+          {allBeliefs.filter((belief) => belief.status !== "active").length ? (
+            allBeliefs
+              .filter((belief) => belief.status !== "active")
+              .map((belief) => <BeliefCard key={belief.belief_id} belief={belief} />)
+          ) : (
+            <div style={{ color: "#6b7280" }}>No inactive beliefs yet.</div>
+          )}
+        </div>
       </Drawer>
     </div>
   );
