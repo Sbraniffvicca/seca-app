@@ -96,6 +96,14 @@ type LastSecaRagPayload = {
   retrievedAt: string;
   queryPreview: string;
   ragIntent: RagIntent;
+  archive: {
+    status: 'not_requested' | 'pending' | 'archived' | 'skipped' | 'failed';
+    archivedCount: number;
+    curatedCount: number;
+    reason: string;
+    error?: string;
+    updatedAt: string;
+  };
   records: Conversations[];
 };
 
@@ -1761,10 +1769,10 @@ Rules:
 	  });
 	}
 	
-	private async runCuratedRagImport(records: Conversations[], sessionId: number, userId: number, activeModel: string): Promise<void> {
-	  if (records.length === 0) {
-	    return;
-	  }
+		private async runCuratedRagImport(records: Conversations[], sessionId: number, userId: number, activeModel: string): Promise<void> {
+		  if (records.length === 0) {
+		    return;
+		  }
 	
 	  try {
 	    const messages = this.buildCuratedMemoryMessages(records);
@@ -1781,10 +1789,35 @@ Rules:
 	    console.log(`creative RAG curator archived ${archived} curated memory item(s)`);
 	  } catch (error: any) {
 	    console.warn(`creative RAG curator skipped: ${error?.message || error}`);
-	  }
-	}
+		  }
+		}
 
-	private buildJsonRepairMessages(badContent: string): { role: string; content: string }[] {
+		private async runCuratedRagImportWithCount(records: Conversations[], sessionId: number, userId: number, activeModel: string): Promise<number> {
+		  if (records.length === 0) {
+		    return 0;
+		  }
+		
+		  try {
+		    const messages = this.buildCuratedMemoryMessages(records);
+		    const { content } = await call_activemodel(messages, activeModel);
+		    const parsed = parseSubreplies(content);
+		    const curatedMemories = this.validateCuratedMemories(parsed);
+		
+		    if (curatedMemories.length === 0) {
+		      console.log('creative RAG curator chose not to archive curated memories');
+		      return 0;
+		    }
+		
+		    const archived = await this.chatRepository.archiveCuratedSecaMemories(sessionId, userId, curatedMemories);
+		    console.log(`creative RAG curator archived ${archived} curated memory item(s)`);
+		    return archived;
+		  } catch (error: any) {
+		    console.warn(`creative RAG curator skipped: ${error?.message || error}`);
+		    return 0;
+		  }
+		}
+
+		private buildJsonRepairMessages(badContent: string): { role: string; content: string }[] {
 	  return [
 	    {
 	      role: 'system',
@@ -2606,6 +2639,13 @@ Rules:
     retrievedAt: new Date().toISOString(),
     queryPreview: memoryQuery,
     ragIntent,
+    archive: {
+      status: ragIntent.should_archive ? 'pending' : 'not_requested',
+      archivedCount: 0,
+      curatedCount: 0,
+      reason: ragIntent.reason,
+      updatedAt: new Date().toISOString()
+    },
     records: retrievedMemoryConversations,
   });
 
@@ -2686,16 +2726,59 @@ const metaSubreply = {
 	  console.log("completed applysubreplies")
 
 	  if (ragIntent.should_archive && recUserConv.conversation_id) {
-	    void this.chatRepository.archiveCreativeConversationRecords([recUserConv])
-	      .then(count => {
-	        if (count > 0) {
+	    void (async () => {
+	      try {
+	        const archivedCount = await this.chatRepository.archiveCreativeConversationRecords([recUserConv]);
+	        const curatedCount = await this.runCuratedRagImportWithCount([recUserConv], session_id, user_id, activeModel);
+	        const previous = this.lastSecaRagBySession.get(session_id);
+	        if (previous) {
+	          this.lastSecaRagBySession.set(session_id, {
+	            ...previous,
+	            archive: {
+	              status: archivedCount > 0 || curatedCount > 0 ? 'archived' : 'skipped',
+	              archivedCount,
+	              curatedCount,
+	              reason: ragIntent.reason,
+	              updatedAt: new Date().toISOString()
+	            }
+	          });
+	        }
+	        if (archivedCount > 0 || curatedCount > 0) {
 	          console.log(`creative RAG archived current user prompt: ${ragIntent.reason}`);
 	        }
-	      })
-	      .catch(error => console.warn(`creative RAG prompt archive error: ${error?.message || error}`));
-
-	    void this.runCuratedRagImport([recUserConv], session_id, user_id, activeModel)
-	      .catch(error => console.warn(`creative RAG prompt curator error: ${error?.message || error}`));
+	      } catch (error: any) {
+	        const previous = this.lastSecaRagBySession.get(session_id);
+	        if (previous) {
+	          this.lastSecaRagBySession.set(session_id, {
+	            ...previous,
+	            archive: {
+	              status: 'failed',
+	              archivedCount: 0,
+	              curatedCount: 0,
+	              reason: ragIntent.reason,
+	              error: error?.message || String(error),
+	              updatedAt: new Date().toISOString()
+	            }
+	          });
+	        }
+	        console.warn(`creative RAG prompt archive error: ${error?.message || error}`);
+	      }
+	    })();
+	  } else if (ragIntent.should_archive && !recUserConv.conversation_id) {
+	    const previous = this.lastSecaRagBySession.get(session_id);
+	    if (previous) {
+	      this.lastSecaRagBySession.set(session_id, {
+	        ...previous,
+	        archive: {
+	          status: 'failed',
+	          archivedCount: 0,
+	          curatedCount: 0,
+	          reason: ragIntent.reason,
+	          error: 'Current user prompt did not have a conversation id.',
+	          updatedAt: new Date().toISOString()
+	        }
+	      });
+	    }
 	  }
 	
 	  void this.runCreativeMaintenanceIfNeeded(session_id, user_id, activeModel)

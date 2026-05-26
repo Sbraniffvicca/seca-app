@@ -106,6 +106,8 @@ type LastRagRecord = {
   created_dttm?: string | null;
 };
 
+type RagArchiveStatus = "not_requested" | "pending" | "archived" | "skipped" | "failed";
+
 type LastRagPayload = {
   lastRag: {
     retrievedAt: string;
@@ -114,6 +116,14 @@ type LastRagPayload = {
       should_retrieve: boolean;
       should_archive: boolean;
       reason: string;
+    };
+    archive?: {
+      status: RagArchiveStatus;
+      archivedCount: number;
+      curatedCount: number;
+      reason: string;
+      error?: string;
+      updatedAt: string;
     };
     records: LastRagRecord[];
   } | null;
@@ -429,6 +439,22 @@ export default function SentientPage() {
         content: contentMatch?.[1]?.trim() || block.trim(),
       };
     });
+  };
+
+  const ragArchiveColor = (status?: RagArchiveStatus) => {
+    switch (status) {
+      case "archived":
+        return "green";
+      case "pending":
+        return "gold";
+      case "failed":
+        return "red";
+      case "skipped":
+        return "default";
+      case "not_requested":
+      default:
+        return "default";
+    }
   };
 
   const BeliefCard = ({ belief }: { belief: Belief }) => (
@@ -795,6 +821,23 @@ export default function SentientPage() {
                   </Tag>
                 </div>
                 <div style={{ color: "#4b5563", lineHeight: 1.4 }}>{lastRag.ragIntent.reason}</div>
+              </div>
+            ) : null}
+            {lastRag.archive ? (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>Prompt Archive</div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+                  <Tag color={ragArchiveColor(lastRag.archive.status)}>
+                    {lastRag.archive.status.replace("_", " ")}
+                  </Tag>
+                  <Tag>raw {lastRag.archive.archivedCount}</Tag>
+                  <Tag>curated {lastRag.archive.curatedCount}</Tag>
+                </div>
+                <div style={{ color: "#4b5563", lineHeight: 1.4 }}>{lastRag.archive.reason}</div>
+                {lastRag.archive.error ? (
+                  <div style={{ color: "#b91c1c", lineHeight: 1.4, marginTop: 4 }}>{lastRag.archive.error}</div>
+                ) : null}
+                <div style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>{lastRag.archive.updatedAt}</div>
               </div>
             ) : null}
             <div style={{ fontWeight: 700, marginBottom: 8 }}>Memories Returned</div>
