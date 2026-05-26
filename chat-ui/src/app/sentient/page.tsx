@@ -67,6 +67,69 @@ type BeliefsPayload = {
   allBeliefs: Belief[];
 };
 
+type CreativeMood = {
+  mood_id: number;
+  mood_key: string;
+  intensity: number;
+  valence: string;
+  body?: string | null;
+  behavioral_pull?: string | null;
+  belief_lens?: string | null;
+  coping_state?: string | null;
+  created_dttm?: string | null;
+  updated_dttm?: string | null;
+};
+
+type MoodPayload = {
+  currentMood: CreativeMood | null;
+  recentMoods: CreativeMood[];
+};
+
+type CreativeTemperament = {
+  temperament_id: number;
+  openness: number;
+  conscientiousness: number;
+  extraversion: number;
+  agreeableness: number;
+  neuroticism: number;
+  private_model?: string | null;
+  updated_dttm?: string | null;
+};
+
+type TemperamentPayload = {
+  temperament: CreativeTemperament;
+};
+
+type LastRagRecord = {
+  role: string;
+  content: string;
+  created_dttm?: string | null;
+};
+
+type LastRagPayload = {
+  lastRag: {
+    retrievedAt: string;
+    queryPreview: string;
+    ragIntent?: {
+      should_retrieve: boolean;
+      should_archive: boolean;
+      reason: string;
+    };
+    records: LastRagRecord[];
+  } | null;
+};
+
+type ParsedRagMemory = {
+  label: string;
+  source?: string;
+  conversationId?: string;
+  role?: string;
+  tag?: string;
+  score?: string;
+  created?: string;
+  content: string;
+};
+
 export default function SentientPage() {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Conversations[]>([]);
@@ -77,11 +140,18 @@ export default function SentientPage() {
   const [subconsciousOpen, setSubconsciousOpen] = useState(false);
   const [relationshipOpen, setRelationshipOpen] = useState(false);
   const [beliefsOpen, setBeliefsOpen] = useState(false);
+  const [moodOpen, setMoodOpen] = useState(false);
+  const [temperamentOpen, setTemperamentOpen] = useState(false);
+  const [ragOpen, setRagOpen] = useState(false);
   const [activeDrives, setActiveDrives] = useState<SubconsciousDrive[]>([]);
   const [allDrives, setAllDrives] = useState<SubconsciousDrive[]>([]);
   const [relationship, setRelationship] = useState<CreativeRelationship | null>(null);
   const [activeBeliefs, setActiveBeliefs] = useState<Belief[]>([]);
   const [allBeliefs, setAllBeliefs] = useState<Belief[]>([]);
+  const [currentMood, setCurrentMood] = useState<CreativeMood | null>(null);
+  const [recentMoods, setRecentMoods] = useState<CreativeMood[]>([]);
+  const [temperament, setTemperament] = useState<CreativeTemperament | null>(null);
+  const [lastRag, setLastRag] = useState<LastRagPayload["lastRag"]>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
 
   const valenceColor: Record<SubconsciousDrive["valence"], string> = {
@@ -96,12 +166,6 @@ export default function SentientPage() {
     low: "default",
     medium: "gold",
     high: "volcano",
-  };
-
-  const intensityRank: Record<SubconsciousDrive["intensity"], number> = {
-    low: 1,
-    medium: 2,
-    high: 3,
   };
 
   const beliefConfidenceColor: Record<Belief["confidence"], string> = {
@@ -183,11 +247,57 @@ export default function SentientPage() {
     }
   };
 
+  const fetchMood = async () => {
+    try {
+      const res = await axios.get("/api/chat/creative-mood", {
+        withCredentials: true,
+      });
+      const payload = typeof res.data.message === "string"
+        ? JSON.parse(res.data.message) as MoodPayload
+        : res.data as MoodPayload;
+      setCurrentMood(payload.currentMood ?? null);
+      setRecentMoods(payload.recentMoods ?? []);
+    } catch {
+      antdMessage.error("Failed to fetch mood");
+    }
+  };
+
+  const fetchTemperament = async () => {
+    try {
+      const res = await axios.get("/api/chat/creative-temperament", {
+        withCredentials: true,
+      });
+      const payload = typeof res.data.message === "string"
+        ? JSON.parse(res.data.message) as TemperamentPayload
+        : res.data as TemperamentPayload;
+      setTemperament(payload.temperament ?? null);
+    } catch {
+      antdMessage.error("Failed to fetch temperament");
+    }
+  };
+
+  const fetchLastRag = async () => {
+    try {
+      const res = await axios.get("/api/chat/creative-last-rag-context", {
+        withCredentials: true,
+      });
+      const payload = typeof res.data.message === "string"
+        ? JSON.parse(res.data.message) as LastRagPayload
+        : res.data as LastRagPayload;
+      setLastRag(payload.lastRag ?? null);
+    } catch {
+      antdMessage.error("Failed to fetch RAG context");
+    }
+  };
+
   useEffect(() => {
     void fetchConversations();
     void fetchSubconsciousDrives();
     void fetchRelationship();
     void fetchBeliefs();
+    void fetchMood();
+    void fetchTemperament();
+    void fetchLastRag();
   }, []);
 
   useEffect(() => {
@@ -215,31 +325,6 @@ export default function SentientPage() {
       {drive.status === "retired" && drive.retired_reason ? (
         <div style={{ marginTop: 6, color: "#6b7280", fontSize: 12 }}>{drive.retired_reason}</div>
       ) : null}
-    </div>
-  );
-
-  const DrivePulse = ({ compact = false }: { compact?: boolean }) => (
-    <div style={{ marginBottom: compact ? 0 : 18 }}>
-      <div style={{ fontWeight: 700, marginBottom: 8 }}>Pulse</div>
-      {activeDrives.length ? activeDrives.map((drive) => (
-        <div key={drive.drive_id} style={{ marginBottom: compact ? 12 : 10 }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: compact ? 12 : 14 }}>
-              {drive.drive_type}
-            </span>
-            <Tag color={valenceColor[drive.valence]} style={{ marginRight: 0 }}>{drive.valence}</Tag>
-          </div>
-          <div style={{ height: 7, background: "#eef2f7", borderRadius: 999, overflow: "hidden" }}>
-            <div
-              style={{
-                height: "100%",
-                width: `${(intensityRank[drive.intensity] / 3) * 100}%`,
-                background: drive.intensity === "high" ? "#fa541c" : drive.intensity === "medium" ? "#d48806" : "#8c8c8c",
-              }}
-            />
-          </div>
-        </div>
-      )) : <div style={{ color: "#6b7280" }}>No active drives yet.</div>}
     </div>
   );
 
@@ -286,6 +371,65 @@ export default function SentientPage() {
       </div>
     </div>
   );
+
+  const MoodCard = ({ mood }: { mood: CreativeMood }) => (
+    <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <strong>{mood.mood_key}</strong>
+        <span style={{ whiteSpace: "nowrap" }}>
+          <Tag color={mood.intensity >= 7 ? "volcano" : mood.intensity >= 4 ? "gold" : "default"}>{mood.intensity}/10</Tag>
+          <Tag color="purple" style={{ marginRight: 0 }}>{mood.valence}</Tag>
+        </span>
+      </div>
+      <RelationshipField label="Behavioral Pull" value={mood.behavioral_pull} />
+      <RelationshipField label="Belief Lens" value={mood.belief_lens} />
+      <RelationshipField label="Coping State" value={mood.coping_state} />
+      <RelationshipField label="Body" value={mood.body} />
+      <div style={{ color: "#6b7280", fontSize: 12 }}>{mood.created_dttm || mood.updated_dttm || ""}</div>
+    </div>
+  );
+
+  const TraitBar = ({ label, value }: { label: string; value: number }) => (
+    <div style={{ marginBottom: 12 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+        <strong>{label}</strong>
+        <Tag style={{ marginRight: 0 }}>{value}</Tag>
+      </div>
+      <div style={{ height: 8, background: "#eef2f7", borderRadius: 999, overflow: "hidden" }}>
+        <div
+          style={{
+            height: "100%",
+            width: `${Math.max(0, Math.min(100, value))}%`,
+            background: value >= 67 ? "#1677ff" : value >= 34 ? "#13c2c2" : "#8c8c8c",
+          }}
+        />
+      </div>
+    </div>
+  );
+
+  const parseRagMemories = (records: LastRagRecord[]): ParsedRagMemory[] => {
+    const text = records.map((record) => record.content).join("\n\n");
+    const blocks = text.split(/\n(?=memory_\d+:)/g).filter((block) => /^memory_\d+:/m.test(block));
+
+    return blocks.map((block) => {
+      const lineValue = (key: string) => {
+        const match = block.match(new RegExp(`^${key}=(.*)$`, "m"));
+        return match?.[1]?.trim();
+      };
+      const contentMatch = block.match(/^content=([\s\S]*)$/m);
+
+      return {
+        label: block.match(/^(memory_\d+):/m)?.[1] ?? "memory",
+        source: lineValue("source"),
+        conversationId: lineValue("original_conversation_id") ?? lineValue("source_conversation_ids"),
+        role: lineValue("role"),
+        tag: lineValue("tag"),
+        score: lineValue("score"),
+        created: lineValue("created_dttm"),
+        content: contentMatch?.[1]?.trim() || block.trim(),
+      };
+    });
+  };
 
   const BeliefCard = ({ belief }: { belief: Belief }) => (
     <div
@@ -370,11 +514,17 @@ export default function SentientPage() {
       await fetchSubconsciousDrives();
       await fetchRelationship();
       await fetchBeliefs();
+      await fetchMood();
+      await fetchTemperament();
+      await fetchLastRag();
       window.setTimeout(() => {
         void fetchConversations();
         void fetchSubconsciousDrives();
         void fetchRelationship();
         void fetchBeliefs();
+        void fetchMood();
+        void fetchTemperament();
+        void fetchLastRag();
       }, 2500);
     } catch (err) {
       antdMessage.error("Assistant error");
@@ -404,6 +554,18 @@ export default function SentientPage() {
           </Button>
         </Tooltip>
 
+        <Tooltip title="Open mood drawer">
+          <Button size="small" onClick={() => setMoodOpen(true)}>
+            Mood {currentMood ? `(${currentMood.mood_key} ${currentMood.intensity})` : ""}
+          </Button>
+        </Tooltip>
+
+        <Tooltip title="Open temperament drawer">
+          <Button size="small" onClick={() => setTemperamentOpen(true)}>
+            OCEAN
+          </Button>
+        </Tooltip>
+
         <Tooltip title="Open relationship drawer">
           <Button size="small" onClick={() => setRelationshipOpen(true)}>
             Relationship
@@ -416,24 +578,16 @@ export default function SentientPage() {
           </Button>
         </Tooltip>
 
+        <Tooltip title="Open prior injected RAG context">
+          <Button size="small" onClick={() => setRagOpen(true)}>
+            RAG ({lastRag?.records.length ?? 0})
+          </Button>
+        </Tooltip>
+
 	      </div>
 
 
-      <div style={{ display: "flex", gap: 10, flexGrow: 1, minHeight: 0 }}>
-        <div
-          style={{
-            width: 230,
-            flexShrink: 0,
-            overflowY: "auto",
-            background: "#fbfcfd",
-            border: "1px solid #e5e7eb",
-            borderRadius: 8,
-            padding: 10,
-          }}
-        >
-          <DrivePulse compact />
-        </div>
-
+      <div style={{ display: "flex", flexGrow: 1, minHeight: 0 }}>
         <div style={{ flexGrow: 1, overflowY: "auto", background: "#fff", padding: 10, borderRadius: 8 }}>
           {messages
             .filter(m => m.role === "user" || showAll || m.content.includes("[for-human]"))
@@ -513,6 +667,50 @@ export default function SentientPage() {
       </Drawer>
 
       <Drawer
+        title="Mood"
+        placement="right"
+        width={460}
+        open={moodOpen}
+        onClose={() => setMoodOpen(false)}
+        extra={<Button size="small" onClick={() => void fetchMood()}>Refresh</Button>}
+      >
+        {currentMood ? (
+          <>
+            <MoodCard mood={currentMood} />
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Recent</div>
+            {recentMoods.length ? recentMoods.slice().reverse().map((mood) => (
+              <MoodCard key={mood.mood_id} mood={mood} />
+            )) : <div style={{ color: "#6b7280" }}>No recent mood history yet.</div>}
+          </>
+        ) : (
+          <div style={{ color: "#6b7280" }}>No mood row loaded.</div>
+        )}
+      </Drawer>
+
+      <Drawer
+        title="OCEAN Temperament"
+        placement="right"
+        width={460}
+        open={temperamentOpen}
+        onClose={() => setTemperamentOpen(false)}
+        extra={<Button size="small" onClick={() => void fetchTemperament()}>Refresh</Button>}
+      >
+        {temperament ? (
+          <>
+            <TraitBar label="Openness" value={temperament.openness} />
+            <TraitBar label="Conscientiousness" value={temperament.conscientiousness} />
+            <TraitBar label="Extraversion" value={temperament.extraversion} />
+            <TraitBar label="Agreeableness" value={temperament.agreeableness} />
+            <TraitBar label="Neuroticism" value={temperament.neuroticism} />
+            <RelationshipField label="Private Model" value={temperament.private_model} />
+            <RelationshipField label="Updated" value={temperament.updated_dttm} />
+          </>
+        ) : (
+          <div style={{ color: "#6b7280" }}>No temperament row loaded.</div>
+        )}
+      </Drawer>
+
+      <Drawer
         title="Relationship Model"
         placement="right"
         width={460}
@@ -571,6 +769,64 @@ export default function SentientPage() {
             <div style={{ color: "#6b7280" }}>No inactive beliefs yet.</div>
           )}
         </div>
+      </Drawer>
+
+      <Drawer
+        title="Retrieved Memory"
+        placement="right"
+        width={620}
+        open={ragOpen}
+        onClose={() => setRagOpen(false)}
+        extra={<Button size="small" onClick={() => void fetchLastRag()}>Refresh</Button>}
+      >
+        {lastRag ? (
+          <>
+            <RelationshipField label="Retrieved" value={lastRag.retrievedAt} />
+            <RelationshipField label="RAG Query" value={lastRag.queryPreview || "Empty"} />
+            {lastRag.ragIntent ? (
+              <div style={{ marginBottom: 14 }}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>RAG Intent</div>
+                <div style={{ display: "flex", gap: 6, marginBottom: 6 }}>
+                  <Tag color={lastRag.ragIntent.should_retrieve ? "green" : "default"}>
+                    retrieve {lastRag.ragIntent.should_retrieve ? "yes" : "no"}
+                  </Tag>
+                  <Tag color={lastRag.ragIntent.should_archive ? "green" : "default"}>
+                    archive {lastRag.ragIntent.should_archive ? "yes" : "no"}
+                  </Tag>
+                </div>
+                <div style={{ color: "#4b5563", lineHeight: 1.4 }}>{lastRag.ragIntent.reason}</div>
+              </div>
+            ) : null}
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Memories Returned</div>
+            {parseRagMemories(lastRag.records).length ? parseRagMemories(lastRag.records).map((memory) => (
+              <div
+                key={`${memory.label}-${memory.conversationId ?? memory.score ?? memory.content.slice(0, 20)}`}
+                style={{
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 8,
+                  padding: 10,
+                  marginBottom: 10,
+                  background: "#fbfcfd",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+                  <strong>{memory.tag || memory.role || memory.source || memory.label}</strong>
+                  {memory.score ? <Tag style={{ marginRight: 0 }}>score {memory.score}</Tag> : null}
+                </div>
+                <div style={{ lineHeight: 1.4, whiteSpace: "pre-wrap", marginBottom: 8 }}>{memory.content}</div>
+                <div style={{ color: "#6b7280", fontSize: 12 }}>
+                  {[memory.source, memory.conversationId ? `conversation ${memory.conversationId}` : "", memory.created].filter(Boolean).join(" · ")}
+                </div>
+              </div>
+            )) : (
+              <div style={{ color: "#6b7280" }}>No archived RAG memory was injected on the prior turn.</div>
+            )}
+          </>
+        ) : (
+          <div style={{ color: "#6b7280" }}>
+            No prior RAG context has been captured since the chat service last started.
+          </div>
+        )}
       </Drawer>
     </div>
   );

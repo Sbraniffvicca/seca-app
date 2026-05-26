@@ -701,6 +701,30 @@ async getCreativeBeliefs(@Req() req: Request): Promise<{ message: string }> {
   return await this.chatService.getCreativeBeliefs(token);
 }
 
+@Get('creative-mood')
+async getCreativeMood(@Req() req: Request): Promise<{ message: string }> {
+  const token = req.cookies?.authToken;
+  if (!token) throw new UnauthorizedException('Missing token');
+
+  return await this.chatService.getCreativeMood(token);
+}
+
+@Get('creative-temperament')
+async getCreativeTemperament(@Req() req: Request): Promise<{ message: string }> {
+  const token = req.cookies?.authToken;
+  if (!token) throw new UnauthorizedException('Missing token');
+
+  return await this.chatService.getCreativeTemperament(token);
+}
+
+@Get('creative-last-rag-context')
+async getCreativeLastRagContext(@Req() req: Request): Promise<{ message: string }> {
+  const token = req.cookies?.authToken;
+  if (!token) throw new UnauthorizedException('Missing token');
+
+  return await this.chatService.getCreativeLastRagContext(token);
+}
+
 // new
 
 @Post("creativeresponse")

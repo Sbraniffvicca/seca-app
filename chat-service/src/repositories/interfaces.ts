@@ -146,6 +146,37 @@ export interface CreativeRelationship {
   updated_dttm?: string;
 }
 
+export interface CreativeMood {
+  mood_id?: number;
+  session_id: number;
+  user_id: number;
+  mood_key: string;
+  intensity: number;
+  valence: string;
+  body?: string | null;
+  behavioral_pull?: string | null;
+  belief_lens?: string | null;
+  coping_state?: string | null;
+  source_conversation_id?: number | null;
+  created_dttm?: string;
+  updated_dttm?: string;
+}
+
+export interface CreativeTemperament {
+  temperament_id?: number;
+  session_id: number;
+  user_id: number;
+  openness: number;
+  conscientiousness: number;
+  extraversion: number;
+  agreeableness: number;
+  neuroticism: number;
+  private_model?: string | null;
+  last_sleep_conversation_id?: number | null;
+  created_dttm?: string;
+  updated_dttm?: string;
+}
+
 export interface CreativeBelief {
   belief_id?: number;
   session_id: number;
