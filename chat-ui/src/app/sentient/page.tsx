@@ -69,9 +69,9 @@ type BeliefsPayload = {
 
 type CreativeMood = {
   mood_id: number;
-  mood_key: string;
-  intensity: number;
-  valence: string;
+  anger: number;
+  fear: number;
+  attachment: number;
   body?: string | null;
   behavioral_pull?: string | null;
   belief_lens?: string | null;
@@ -82,7 +82,6 @@ type CreativeMood = {
 
 type MoodPayload = {
   currentMood: CreativeMood | null;
-  recentMoods: CreativeMood[];
 };
 
 type CreativeTemperament = {
@@ -125,12 +124,14 @@ type LastRagPayload = {
       error?: string;
       updatedAt: string;
     };
+    retrievedRecords?: LastRagRecord[];
     records: LastRagRecord[];
   } | null;
 };
 
 type ParsedRagMemory = {
   label: string;
+  rank: number;
   source?: string;
   conversationId?: string;
   role?: string;
@@ -159,7 +160,6 @@ export default function SentientPage() {
   const [activeBeliefs, setActiveBeliefs] = useState<Belief[]>([]);
   const [allBeliefs, setAllBeliefs] = useState<Belief[]>([]);
   const [currentMood, setCurrentMood] = useState<CreativeMood | null>(null);
-  const [recentMoods, setRecentMoods] = useState<CreativeMood[]>([]);
   const [temperament, setTemperament] = useState<CreativeTemperament | null>(null);
   const [lastRag, setLastRag] = useState<LastRagPayload["lastRag"]>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
@@ -266,7 +266,6 @@ export default function SentientPage() {
         ? JSON.parse(res.data.message) as MoodPayload
         : res.data as MoodPayload;
       setCurrentMood(payload.currentMood ?? null);
-      setRecentMoods(payload.recentMoods ?? []);
     } catch {
       antdMessage.error("Failed to fetch mood");
     }
@@ -382,15 +381,29 @@ export default function SentientPage() {
     </div>
   );
 
+  const MoodAxis = ({ label, value, color }: { label: string; value: number; color: string }) => (
+    <div style={{ marginBottom: 10 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+        <strong>{label}</strong>
+        <Tag style={{ marginRight: 0 }}>{value}/100</Tag>
+      </div>
+      <div style={{ height: 8, background: "#f3f4f6", borderRadius: 999, overflow: "hidden" }}>
+        <div
+          style={{
+            width: `${Math.max(0, Math.min(100, value))}%`,
+            height: "100%",
+            background: color
+          }}
+        />
+      </div>
+    </div>
+  );
+
   const MoodCard = ({ mood }: { mood: CreativeMood }) => (
     <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, padding: 10, marginBottom: 10 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-        <strong>{mood.mood_key}</strong>
-        <span style={{ whiteSpace: "nowrap" }}>
-          <Tag color={mood.intensity >= 7 ? "volcano" : mood.intensity >= 4 ? "gold" : "default"}>{mood.intensity}/10</Tag>
-          <Tag color="purple" style={{ marginRight: 0 }}>{mood.valence}</Tag>
-        </span>
-      </div>
+      <MoodAxis label="Anger" value={mood.anger} color="#ef4444" />
+      <MoodAxis label="Fear" value={mood.fear} color="#8b5cf6" />
+      <MoodAxis label="Attachment" value={mood.attachment} color="#10b981" />
       <RelationshipField label="Behavioral Pull" value={mood.behavioral_pull} />
       <RelationshipField label="Belief Lens" value={mood.belief_lens} />
       <RelationshipField label="Coping State" value={mood.coping_state} />
@@ -421,7 +434,7 @@ export default function SentientPage() {
     const text = records.map((record) => record.content).join("\n\n");
     const blocks = text.split(/\n(?=memory_\d+:)/g).filter((block) => /^memory_\d+:/m.test(block));
 
-    return blocks.map((block) => {
+    return blocks.map((block, index) => {
       const lineValue = (key: string) => {
         const match = block.match(new RegExp(`^${key}=(.*)$`, "m"));
         return match?.[1]?.trim();
@@ -430,6 +443,7 @@ export default function SentientPage() {
 
       return {
         label: block.match(/^(memory_\d+):/m)?.[1] ?? "memory",
+        rank: index + 1,
         source: lineValue("source"),
         conversationId: lineValue("original_conversation_id") ?? lineValue("source_conversation_ids"),
         role: lineValue("role"),
@@ -456,6 +470,30 @@ export default function SentientPage() {
         return "default";
     }
   };
+
+  const RagMemoryCard = ({ memory, injected }: { memory: ParsedRagMemory; injected?: boolean }) => (
+    <div
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 8,
+        padding: 10,
+        marginBottom: 10,
+        background: injected ? "#f6ffed" : "#fbfcfd",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <strong>{memory.tag || memory.role || memory.source || memory.label}</strong>
+        <span style={{ whiteSpace: "nowrap" }}>
+          <Tag color={injected ? "green" : "blue"}>rank {memory.rank}</Tag>
+          {memory.score ? <Tag style={{ marginRight: 0 }}>score {memory.score}</Tag> : null}
+        </span>
+      </div>
+      <div style={{ lineHeight: 1.4, whiteSpace: "pre-wrap", marginBottom: 8 }}>{memory.content}</div>
+      <div style={{ color: "#6b7280", fontSize: 12 }}>
+        {[memory.source, memory.conversationId ? `conversation ${memory.conversationId}` : "", memory.created].filter(Boolean).join(" · ")}
+      </div>
+    </div>
+  );
 
   const BeliefCard = ({ belief }: { belief: Belief }) => (
     <div
@@ -582,7 +620,7 @@ export default function SentientPage() {
 
         <Tooltip title="Open mood drawer">
           <Button size="small" onClick={() => setMoodOpen(true)}>
-            Mood {currentMood ? `(${currentMood.mood_key} ${currentMood.intensity})` : ""}
+            Mood {currentMood ? `(A${currentMood.anger} F${currentMood.fear} L${currentMood.attachment})` : ""}
           </Button>
         </Tooltip>
 
@@ -701,13 +739,7 @@ export default function SentientPage() {
         extra={<Button size="small" onClick={() => void fetchMood()}>Refresh</Button>}
       >
         {currentMood ? (
-          <>
-            <MoodCard mood={currentMood} />
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Recent</div>
-            {recentMoods.length ? recentMoods.slice().reverse().map((mood) => (
-              <MoodCard key={mood.mood_id} mood={mood} />
-            )) : <div style={{ color: "#6b7280" }}>No recent mood history yet.</div>}
-          </>
+          <MoodCard mood={currentMood} />
         ) : (
           <div style={{ color: "#6b7280" }}>No mood row loaded.</div>
         )}
@@ -840,27 +872,29 @@ export default function SentientPage() {
                 <div style={{ color: "#6b7280", fontSize: 12, marginTop: 4 }}>{lastRag.archive.updatedAt}</div>
               </div>
             ) : null}
-            <div style={{ fontWeight: 700, marginBottom: 8 }}>Memories Returned</div>
+            <div style={{ fontWeight: 700, marginBottom: 8 }}>Retrieved Candidates</div>
+            <div style={{ color: "#6b7280", fontSize: 12, marginBottom: 8 }}>
+              These came back from RAG search. They may still be rejected before voicecall.
+            </div>
+            {parseRagMemories(lastRag.retrievedRecords ?? lastRag.records).length ? parseRagMemories(lastRag.retrievedRecords ?? lastRag.records).map((memory) => (
+              <RagMemoryCard
+                key={`retrieved-${memory.label}-${memory.conversationId ?? memory.score ?? memory.content.slice(0, 20)}`}
+                memory={memory}
+              />
+            )) : (
+              <div style={{ color: "#6b7280", marginBottom: 14 }}>No RAG candidates were retrieved on the prior turn.</div>
+            )}
+
+            <div style={{ fontWeight: 700, marginBottom: 8, marginTop: 14 }}>Injected Into Voice Context</div>
+            <div style={{ color: "#6b7280", fontSize: 12, marginBottom: 8 }}>
+              These are the retrieved memories that survived filters and were actually added to the context window.
+            </div>
             {parseRagMemories(lastRag.records).length ? parseRagMemories(lastRag.records).map((memory) => (
-              <div
-                key={`${memory.label}-${memory.conversationId ?? memory.score ?? memory.content.slice(0, 20)}`}
-                style={{
-                  border: "1px solid #e5e7eb",
-                  borderRadius: 8,
-                  padding: 10,
-                  marginBottom: 10,
-                  background: "#fbfcfd",
-                }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
-                  <strong>{memory.tag || memory.role || memory.source || memory.label}</strong>
-                  {memory.score ? <Tag style={{ marginRight: 0 }}>score {memory.score}</Tag> : null}
-                </div>
-                <div style={{ lineHeight: 1.4, whiteSpace: "pre-wrap", marginBottom: 8 }}>{memory.content}</div>
-                <div style={{ color: "#6b7280", fontSize: 12 }}>
-                  {[memory.source, memory.conversationId ? `conversation ${memory.conversationId}` : "", memory.created].filter(Boolean).join(" · ")}
-                </div>
-              </div>
+              <RagMemoryCard
+                key={`injected-${memory.label}-${memory.conversationId ?? memory.score ?? memory.content.slice(0, 20)}`}
+                memory={memory}
+                injected
+              />
             )) : (
               <div style={{ color: "#6b7280" }}>No archived RAG memory was injected on the prior turn.</div>
             )}

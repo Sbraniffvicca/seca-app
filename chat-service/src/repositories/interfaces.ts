@@ -150,9 +150,12 @@ export interface CreativeMood {
   mood_id?: number;
   session_id: number;
   user_id: number;
-  mood_key: string;
-  intensity: number;
-  valence: string;
+  anger: number;
+  fear: number;
+  attachment: number;
+  mood_key?: string;
+  intensity?: number;
+  valence?: string;
   body?: string | null;
   behavioral_pull?: string | null;
   belief_lens?: string | null;
