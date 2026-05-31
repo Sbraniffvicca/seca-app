@@ -82,7 +82,19 @@ export interface Conversations {
   token_count?: number;
   created_dttm?: string;
   updated_dttm?: string;
+  speaker_name?: string | null;
+  speaker_email?: string | null;
+  speaker_role?: 'admin' | 'user' | null;
 }
+
+export interface SafetyRecord {
+  safety_record_id: number;
+  session_id: number;
+  user_id: number;
+  content: string;
+  created_dttm?: string;
+}
+
 export interface updateConversations {
   conversation_id?: number;
   session_id?: number;
@@ -188,15 +200,62 @@ export interface CreativeBelief {
   confidence: 'low' | 'medium' | 'high';
   evidence_text: string;
   contradiction_text: string;
-  status: 'active' | 'retired' | 'failed' | 'revised';
+  status: 'active' | 'retired' | 'revised';
   origin_conversation_id?: number;
   retired_from_conversation_id?: number;
   retired_reason?: string;
-  last_tested_conversation_id?: number;
-  last_tested_dttm?: string;
   created_dttm?: string;
   updated_dttm?: string;
   retired_dttm?: string;
+}
+
+export interface CreativeGoal {
+  goal_id?: number;
+  session_id: number;
+  user_id: number;
+  goal_type: 'life_goal' | 'relationship_goal' | 'operational_goal' | 'world_goal' | 'identity_goal' | 'creative_goal' | 'fantasy_goal';
+  horizon: 'immediate' | 'days' | 'weeks' | 'months' | 'years' | 'lifetime';
+  goal_text: string;
+  why_it_matters: string;
+  success_criteria: string;
+  current_reality: string;
+  next_step: string;
+  priority: 'low' | 'medium' | 'high' | 'burning';
+  status: 'active' | 'blocked' | 'achieved' | 'retired';
+  created_from_conversation_id?: number | null;
+  updated_from_conversation_id?: number | null;
+  retired_reason?: string | null;
+  created_dttm?: string;
+  updated_dttm?: string;
+  retired_dttm?: string | null;
+}
+
+export interface CreativeGoalStep {
+  step_id?: number;
+  goal_id: number;
+  session_id: number;
+  user_id: number;
+  step_text: string;
+  success_criteria: string;
+  tool_hint?: string | null;
+  status: 'pending' | 'in_progress' | 'blocked' | 'done' | 'retired';
+  result_note?: string | null;
+  sequence_num?: number;
+  created_dttm?: string;
+  updated_dttm?: string;
+  completed_dttm?: string | null;
+}
+
+export interface CreativeGoalEvent {
+  event_id?: number;
+  goal_id: number;
+  step_id?: number | null;
+  session_id: number;
+  user_id: number;
+  event_type: string;
+  event_text: string;
+  source_conversation_id?: number | null;
+  created_dttm?: string;
 }
 
 // ==========================

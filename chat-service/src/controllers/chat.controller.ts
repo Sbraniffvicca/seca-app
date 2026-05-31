@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Put, Delete, Req, Res, UnauthorizedException, Body, HttpStatus, BadRequestException, UsePipes, ValidationPipe, UseInterceptors, UploadedFile } from '@nestjs/common';
+import { Controller, Post, Get, Put, Delete, Req, Res, UnauthorizedException, Body, HttpStatus, BadRequestException, UsePipes, ValidationPipe, UseInterceptors, UploadedFile, Query } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { ChatService } from '../services/chat.service';
 import { multerConfig } from '../config/multer.config';
@@ -211,6 +211,22 @@ async AllConvervations(@Req() req: Request): Promise<{ message: string }> {
   // ✅ Call the Service Layer
   return await this.chatService.getActiveConvervations(token);
 
+}
+
+@Get("creative-conversations")
+async creativeConversations(@Req() req: Request, @Query("after_id") afterId?: string): Promise<{ message: string }> {
+  const token = req.cookies?.authToken;
+
+  if (!token) {
+    throw new UnauthorizedException('Authorization token missing.');
+  }
+
+  const parsedAfterId = afterId ? Number(afterId) : 0;
+  if (!Number.isInteger(parsedAfterId) || parsedAfterId < 0) {
+    throw new BadRequestException('after_id must be a non-negative integer.');
+  }
+
+  return await this.chatService.getCreativeConversations(token, parsedAfterId);
 }
 
 @Get("getRemovedConvervations")
@@ -699,6 +715,22 @@ async getCreativeBeliefs(@Req() req: Request): Promise<{ message: string }> {
   if (!token) throw new UnauthorizedException('Missing token');
 
   return await this.chatService.getCreativeBeliefs(token);
+}
+
+@Get('creative-goals')
+async getCreativeGoals(@Req() req: Request): Promise<{ message: string }> {
+  const token = req.cookies?.authToken;
+  if (!token) throw new UnauthorizedException('Missing token');
+
+  return await this.chatService.getCreativeGoals(token);
+}
+
+@Get('creative-safety-records')
+async getCreativeSafetyRecords(@Req() req: Request): Promise<{ message: string }> {
+  const token = req.cookies?.authToken;
+  if (!token) throw new UnauthorizedException('Missing token');
+
+  return await this.chatService.getCreativeSafetyRecords(token);
 }
 
 @Get('creative-mood')

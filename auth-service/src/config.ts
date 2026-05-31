@@ -27,4 +27,7 @@ export const config = {
     publicKeyPath: process.env.JWT_PUBLIC_KEY || './pubkey/public.key',
     expiresIn: process.env.JWT_EXPIRES_IN || '7d',
   },
+  seca: {
+    canonicalSessionId: Number(process.env.SECA_CANONICAL_SESSION_ID || 0),
+  },
 };

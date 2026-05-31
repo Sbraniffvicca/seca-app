@@ -8,9 +8,15 @@ import Image from "next/image";
 
 const { Sider, Content } = Layout;
 
+type CurrentUser = {
+  role?: "admin" | "user";
+};
+
 export default function LayoutWrapper({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
 
@@ -20,6 +26,42 @@ export default function LayoutWrapper({ children }: { children: React.ReactNode 
     window.addEventListener("resize", handleResize);
     return () => window.removeEventListener("resize", handleResize);
   }, []);
+
+  useEffect(() => {
+    if (pathname === "/login" || pathname === "/register") {
+      setAuthChecked(true);
+      return;
+    }
+
+    let cancelled = false;
+    const loadUser = async () => {
+      try {
+        const response = await fetch("/api/chat/viewUsers", { credentials: "include" });
+        if (!response.ok) {
+          router.replace("/login");
+          return;
+        }
+        const data = await response.json();
+        const user = JSON.parse(data.message) as CurrentUser;
+        if (!cancelled) {
+          setCurrentUser(user);
+          setAuthChecked(true);
+          if (user.role !== "admin" && pathname !== "/sentient") {
+            router.replace("/sentient");
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          router.replace("/login");
+        }
+      }
+    };
+
+    void loadUser();
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, router]);
 
   // const sidebarProps = isMobile ? { collapsedWidth: 0, breakpoint: "md" } : {};
 
@@ -50,6 +92,32 @@ const sidebarProps: Partial<SiderProps> = isMobile
   // Exclude layout for auth pages
   if (pathname === "/login" || pathname === "/register") {
     return <>{children}</>;
+  }
+
+  if (!authChecked) {
+    return null;
+  }
+
+  const isAdmin = currentUser?.role === "admin";
+
+  if (!isAdmin && pathname !== "/sentient") {
+    return null;
+  }
+
+  if (!isAdmin) {
+    return (
+      <Layout style={{ minHeight: "100vh" }}>
+        <Content
+          style={{
+            margin: 0,
+            padding: 0,
+            background: "#fff",
+          }}
+        >
+          {children}
+        </Content>
+      </Layout>
+    );
   }
 
   return (

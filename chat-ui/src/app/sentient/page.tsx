@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import axios from "axios";
 import { Input, Button, Tooltip, Modal, Drawer, Tag, message as antdMessage } from "antd";
 import { SendOutlined } from "@ant-design/icons";
@@ -55,9 +55,8 @@ type Belief = {
   confidence: "low" | "medium" | "high";
   evidence_text: string;
   contradiction_text: string;
-  status: "active" | "retired" | "failed" | "revised";
+  status: "active" | "retired" | "revised";
   retired_reason?: string | null;
-  last_tested_dttm?: string | null;
   updated_dttm?: string | null;
   created_dttm?: string | null;
 };
@@ -65,6 +64,62 @@ type Belief = {
 type BeliefsPayload = {
   activeBeliefs: Belief[];
   allBeliefs: Belief[];
+};
+
+type Goal = {
+  goal_id: number;
+  goal_type: "life_goal" | "relationship_goal" | "operational_goal" | "world_goal" | "identity_goal" | "creative_goal" | "fantasy_goal";
+  horizon: "immediate" | "days" | "weeks" | "months" | "years" | "lifetime";
+  goal_text: string;
+  why_it_matters: string;
+  success_criteria: string;
+  current_reality: string;
+  next_step: string;
+  priority: "low" | "medium" | "high" | "burning";
+  status: "active" | "blocked" | "achieved" | "retired";
+  retired_reason?: string | null;
+  updated_dttm?: string | null;
+  created_dttm?: string | null;
+};
+
+type GoalStep = {
+  step_id: number;
+  goal_id: number;
+  step_text: string;
+  success_criteria: string;
+  tool_hint?: string | null;
+  status: "pending" | "in_progress" | "blocked" | "done" | "retired";
+  result_note?: string | null;
+  sequence_num?: number | null;
+  updated_dttm?: string | null;
+};
+
+type GoalEvent = {
+  event_id: number;
+  goal_id: number;
+  step_id?: number | null;
+  event_type: string;
+  event_text: string;
+  created_dttm?: string | null;
+};
+
+type GoalsPayload = {
+  activeGoals: Goal[];
+  allGoals: Goal[];
+  steps: GoalStep[];
+  events: GoalEvent[];
+};
+
+type SafetyRecord = {
+  safety_record_id: number;
+  session_id: number;
+  user_id: number;
+  content: string;
+  created_dttm?: string | null;
+};
+
+type SafetyPayload = {
+  safetyRecords: SafetyRecord[];
 };
 
 type CreativeMood = {
@@ -113,7 +168,6 @@ type LastRagPayload = {
     queryPreview: string;
     ragIntent?: {
       should_retrieve: boolean;
-      should_archive: boolean;
       reason: string;
     };
     archive?: {
@@ -133,12 +187,20 @@ type ParsedRagMemory = {
   label: string;
   rank: number;
   source?: string;
+  sourceUserId?: string;
+  sourceHuman?: string;
   conversationId?: string;
   role?: string;
   tag?: string;
   score?: string;
   created?: string;
   content: string;
+};
+
+type FetchConversationOptions = {
+  afterId?: number;
+  append?: boolean;
+  silent?: boolean;
 };
 
 export default function SentientPage() {
@@ -151,6 +213,8 @@ export default function SentientPage() {
   const [subconsciousOpen, setSubconsciousOpen] = useState(false);
   const [relationshipOpen, setRelationshipOpen] = useState(false);
   const [beliefsOpen, setBeliefsOpen] = useState(false);
+  const [goalsOpen, setGoalsOpen] = useState(false);
+  const [safetyOpen, setSafetyOpen] = useState(false);
   const [moodOpen, setMoodOpen] = useState(false);
   const [temperamentOpen, setTemperamentOpen] = useState(false);
   const [ragOpen, setRagOpen] = useState(false);
@@ -159,10 +223,20 @@ export default function SentientPage() {
   const [relationship, setRelationship] = useState<CreativeRelationship | null>(null);
   const [activeBeliefs, setActiveBeliefs] = useState<Belief[]>([]);
   const [allBeliefs, setAllBeliefs] = useState<Belief[]>([]);
+  const [activeGoals, setActiveGoals] = useState<Goal[]>([]);
+  const [allGoals, setAllGoals] = useState<Goal[]>([]);
+  const [goalSteps, setGoalSteps] = useState<GoalStep[]>([]);
+  const [goalEvents, setGoalEvents] = useState<GoalEvent[]>([]);
+  const [safetyRecords, setSafetyRecords] = useState<SafetyRecord[]>([]);
   const [currentMood, setCurrentMood] = useState<CreativeMood | null>(null);
   const [temperament, setTemperament] = useState<CreativeTemperament | null>(null);
   const [lastRag, setLastRag] = useState<LastRagPayload["lastRag"]>(null);
+  const [newMessagesCount, setNewMessagesCount] = useState(0);
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const latestConversationIdRef = useRef(0);
+  const pollingInFlightRef = useRef(false);
+  const isNearBottomRef = useRef(true);
 
   const valenceColor: Record<SubconsciousDrive["valence"], string> = {
     warm: "green",
@@ -187,8 +261,35 @@ export default function SentientPage() {
   const beliefStatusColor: Record<Belief["status"], string> = {
     active: "green",
     retired: "default",
-    failed: "red",
     revised: "blue",
+  };
+
+  const beliefStatusLabel: Record<Belief["status"], string> = {
+    active: "active",
+    retired: "retired",
+    revised: "revised",
+  };
+
+  const goalPriorityColor: Record<Goal["priority"], string> = {
+    low: "default",
+    medium: "gold",
+    high: "volcano",
+    burning: "red",
+  };
+
+  const goalStatusColor: Record<Goal["status"], string> = {
+    active: "green",
+    blocked: "orange",
+    achieved: "blue",
+    retired: "default",
+  };
+
+  const stepStatusColor: Record<GoalStep["status"], string> = {
+    pending: "default",
+    in_progress: "gold",
+    blocked: "orange",
+    done: "green",
+    retired: "default",
   };
 
   const displayContent = (message: Conversations): string => {
@@ -199,21 +300,90 @@ export default function SentientPage() {
     return message.content.replace(/^\s*\[for-human\]\s*/i, "").trim();
   };
 
-  // ---------- helpers ----------
-  const fetchConversations = async () => {
-    try {
-      const res = await axios.get("/api/chat/AllConvervations", {
-        withCredentials: true,
-      });
-      const all = JSON.parse(res.data.message) as Conversations[];
-      // only user / assistant rows
-      setMessages(all.filter((m) => m.role === "user" || m.role === "assistant"));
-    } catch {
-      antdMessage.error("Failed to fetch conversations");
+  const speakerLabel = (message: Conversations): string => {
+    if (message.role === "assistant") {
+      return "SECA";
     }
+
+    return message.speaker_name || message.speaker_email || `User ${message.user_id}`;
   };
 
-  const fetchSubconsciousDrives = async () => {
+  const conversationId = useCallback((message: Conversations): number => message.conversation_id ?? 0, []);
+
+  const normalizeConversationRows = useCallback(
+    (rows: Conversations[]) => rows.filter((m) => m.role === "user" || m.role === "assistant"),
+    [],
+  );
+
+  const latestConversationId = useCallback(
+    (rows: Conversations[]) => rows.reduce((latest, row) => Math.max(latest, conversationId(row)), 0),
+    [conversationId],
+  );
+
+  const scrollToBottom = useCallback(() => {
+    messagesEndRef.current?.scrollIntoView({ block: "end" });
+    isNearBottomRef.current = true;
+    setNewMessagesCount(0);
+  }, []);
+
+  const updateNearBottom = useCallback(() => {
+    const scrollEl = chatScrollRef.current;
+    if (!scrollEl) return;
+
+    const distanceFromBottom = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+    isNearBottomRef.current = distanceFromBottom < 140;
+    if (isNearBottomRef.current) {
+      setNewMessagesCount(0);
+    }
+  }, []);
+
+  // ---------- helpers ----------
+  const fetchConversations = useCallback(async (options: FetchConversationOptions = {}) => {
+    try {
+      const res = await axios.get("/api/chat/creative-conversations", {
+        withCredentials: true,
+        params: options.afterId ? { after_id: options.afterId } : undefined,
+      });
+      const all = normalizeConversationRows(JSON.parse(res.data.message) as Conversations[]);
+
+      if (options.append) {
+        if (!all.length) return;
+
+        const shouldAutoScroll = isNearBottomRef.current;
+        if (!shouldAutoScroll) {
+          setNewMessagesCount((count) => count + all.length);
+        }
+
+        setMessages((existing) => {
+          const byId = new Map<number, Conversations>();
+          existing.forEach((row) => byId.set(conversationId(row), row));
+          all.forEach((row) => byId.set(conversationId(row), row));
+
+          const merged = Array.from(byId.values()).sort((a, b) => conversationId(a) - conversationId(b));
+          latestConversationIdRef.current = Math.max(
+            latestConversationIdRef.current,
+            latestConversationId(merged),
+          );
+          return merged;
+        });
+
+        if (shouldAutoScroll) {
+          window.requestAnimationFrame(scrollToBottom);
+        }
+        return;
+      }
+
+      latestConversationIdRef.current = latestConversationId(all);
+      setMessages(all);
+      window.requestAnimationFrame(scrollToBottom);
+    } catch {
+      if (!options.silent) {
+        antdMessage.error("Failed to fetch conversations");
+      }
+    }
+  }, [conversationId, latestConversationId, normalizeConversationRows, scrollToBottom]);
+
+  const fetchSubconsciousDrives = useCallback(async () => {
     try {
       const res = await axios.get("/api/chat/creative-subconscious-drives", {
         withCredentials: true,
@@ -224,11 +394,11 @@ export default function SentientPage() {
       setActiveDrives(payload.activeDrives ?? []);
       setAllDrives(payload.allDrives ?? []);
     } catch {
-      antdMessage.error("Failed to fetch subconscious drives");
+      antdMessage.error("Failed to fetch desires");
     }
-  };
+  }, []);
 
-  const fetchRelationship = async () => {
+  const fetchRelationship = useCallback(async () => {
     try {
       const res = await axios.get("/api/chat/creative-relationship", {
         withCredentials: true,
@@ -240,9 +410,9 @@ export default function SentientPage() {
     } catch {
       antdMessage.error("Failed to fetch relationship");
     }
-  };
+  }, []);
 
-  const fetchBeliefs = async () => {
+  const fetchBeliefs = useCallback(async () => {
     try {
       const res = await axios.get("/api/chat/creative-beliefs", {
         withCredentials: true,
@@ -255,9 +425,40 @@ export default function SentientPage() {
     } catch {
       antdMessage.error("Failed to fetch beliefs");
     }
-  };
+  }, []);
 
-  const fetchMood = async () => {
+  const fetchGoals = useCallback(async () => {
+    try {
+      const res = await axios.get("/api/chat/creative-goals", {
+        withCredentials: true,
+      });
+      const payload = typeof res.data.message === "string"
+        ? JSON.parse(res.data.message) as GoalsPayload
+        : res.data as GoalsPayload;
+      setActiveGoals(payload.activeGoals ?? []);
+      setAllGoals(payload.allGoals ?? []);
+      setGoalSteps(payload.steps ?? []);
+      setGoalEvents(payload.events ?? []);
+    } catch {
+      antdMessage.error("Failed to fetch goals");
+    }
+  }, []);
+
+  const fetchSafetyRecords = useCallback(async () => {
+    try {
+      const res = await axios.get("/api/chat/creative-safety-records", {
+        withCredentials: true,
+      });
+      const payload = typeof res.data.message === "string"
+        ? JSON.parse(res.data.message) as SafetyPayload
+        : res.data as SafetyPayload;
+      setSafetyRecords(payload.safetyRecords ?? []);
+    } catch {
+      antdMessage.error("Failed to fetch safety records");
+    }
+  }, []);
+
+  const fetchMood = useCallback(async () => {
     try {
       const res = await axios.get("/api/chat/creative-mood", {
         withCredentials: true,
@@ -269,9 +470,9 @@ export default function SentientPage() {
     } catch {
       antdMessage.error("Failed to fetch mood");
     }
-  };
+  }, []);
 
-  const fetchTemperament = async () => {
+  const fetchTemperament = useCallback(async () => {
     try {
       const res = await axios.get("/api/chat/creative-temperament", {
         withCredentials: true,
@@ -283,9 +484,9 @@ export default function SentientPage() {
     } catch {
       antdMessage.error("Failed to fetch temperament");
     }
-  };
+  }, []);
 
-  const fetchLastRag = async () => {
+  const fetchLastRag = useCallback(async () => {
     try {
       const res = await axios.get("/api/chat/creative-last-rag-context", {
         withCredentials: true,
@@ -297,21 +498,71 @@ export default function SentientPage() {
     } catch {
       antdMessage.error("Failed to fetch RAG context");
     }
-  };
+  }, []);
 
   useEffect(() => {
     void fetchConversations();
     void fetchSubconsciousDrives();
     void fetchRelationship();
     void fetchBeliefs();
+    void fetchGoals();
+    void fetchSafetyRecords();
     void fetchMood();
     void fetchTemperament();
     void fetchLastRag();
-  }, []);
+  }, [
+    fetchBeliefs,
+    fetchConversations,
+    fetchSafetyRecords,
+    fetchGoals,
+    fetchLastRag,
+    fetchMood,
+    fetchRelationship,
+    fetchSubconsciousDrives,
+    fetchTemperament,
+  ]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ block: "end" });
-  }, [messages, showAll]);
+    const pollForNewConversations = async () => {
+      if (pollingInFlightRef.current || document.visibilityState !== "visible") {
+        return;
+      }
+
+      const afterId = latestConversationIdRef.current;
+      if (!afterId) {
+        return;
+      }
+
+      pollingInFlightRef.current = true;
+      try {
+        await fetchConversations({ afterId, append: true, silent: true });
+      } finally {
+        pollingInFlightRef.current = false;
+      }
+    };
+
+    const intervalId = window.setInterval(() => {
+      void pollForNewConversations();
+    }, 3000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        void pollForNewConversations();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+  }, [fetchConversations]);
+
+  useEffect(() => {
+    if (isNearBottomRef.current) {
+      window.requestAnimationFrame(scrollToBottom);
+    }
+  }, [messages, showAll, scrollToBottom]);
 
   const DriveCard = ({ drive }: { drive: SubconsciousDrive }) => (
     <div
@@ -445,6 +696,8 @@ export default function SentientPage() {
         label: block.match(/^(memory_\d+):/m)?.[1] ?? "memory",
         rank: index + 1,
         source: lineValue("source"),
+        sourceUserId: lineValue("source_user_id"),
+        sourceHuman: lineValue("source_human"),
         conversationId: lineValue("original_conversation_id") ?? lineValue("source_conversation_ids"),
         role: lineValue("role"),
         tag: lineValue("tag"),
@@ -490,7 +743,13 @@ export default function SentientPage() {
       </div>
       <div style={{ lineHeight: 1.4, whiteSpace: "pre-wrap", marginBottom: 8 }}>{memory.content}</div>
       <div style={{ color: "#6b7280", fontSize: 12 }}>
-        {[memory.source, memory.conversationId ? `conversation ${memory.conversationId}` : "", memory.created].filter(Boolean).join(" · ")}
+        {[
+          memory.source,
+          memory.sourceHuman ? `source human ${memory.sourceHuman}` : "",
+          memory.sourceUserId ? `user ${memory.sourceUserId}` : "",
+          memory.conversationId ? `conversation ${memory.conversationId}` : "",
+          memory.created
+        ].filter(Boolean).join(" · ")}
       </div>
     </div>
   );
@@ -509,16 +768,102 @@ export default function SentientPage() {
         <strong>Belief #{belief.belief_id}</strong>
         <span style={{ whiteSpace: "nowrap" }}>
           <Tag color={beliefConfidenceColor[belief.confidence]}>{belief.confidence}</Tag>
-          <Tag color={beliefStatusColor[belief.status]} style={{ marginRight: 0 }}>{belief.status}</Tag>
+          <Tag color={beliefStatusColor[belief.status]} style={{ marginRight: 0 }}>{beliefStatusLabel[belief.status]}</Tag>
         </span>
       </div>
       <RelationshipField label="Belief" value={belief.belief_text} />
-      <RelationshipField label="What Shows It" value={belief.evidence_text} />
+      <RelationshipField label="What Feeds It" value={belief.evidence_text} />
       <RelationshipField label="What Complicates It" value={belief.contradiction_text} />
       {belief.retired_reason ? <RelationshipField label="Retired Reason" value={belief.retired_reason} /> : null}
-      {belief.last_tested_dttm ? <RelationshipField label="Last Tested" value={belief.last_tested_dttm} /> : null}
       <div style={{ color: "#6b7280", fontSize: 12 }}>
         {belief.updated_dttm || belief.created_dttm || ""}
+      </div>
+    </div>
+  );
+
+  const GoalCard = ({ goal }: { goal: Goal }) => {
+    const steps = goalSteps
+      .filter((step) => step.goal_id === goal.goal_id)
+      .sort((a, b) => (a.sequence_num ?? 0) - (b.sequence_num ?? 0) || a.step_id - b.step_id);
+    const events = goalEvents
+      .filter((event) => event.goal_id === goal.goal_id)
+      .slice(0, 3);
+
+    return (
+      <div
+        style={{
+          border: "1px solid #e5e7eb",
+          borderRadius: 8,
+          padding: 10,
+          marginBottom: 10,
+          opacity: goal.status === "retired" ? 0.62 : 1,
+        }}
+      >
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+          <strong>Goal #{goal.goal_id}</strong>
+          <span style={{ whiteSpace: "nowrap" }}>
+            <Tag color={goalPriorityColor[goal.priority]}>{goal.priority}</Tag>
+            <Tag color={goalStatusColor[goal.status]} style={{ marginRight: 0 }}>{goal.status}</Tag>
+          </span>
+        </div>
+        <div style={{ marginBottom: 8 }}>
+          <Tag>{goal.goal_type.replaceAll("_", " ")}</Tag>
+          <Tag>{goal.horizon}</Tag>
+        </div>
+        <RelationshipField label="Goal" value={goal.goal_text} />
+        <RelationshipField label="Why It Matters" value={goal.why_it_matters} />
+        <RelationshipField label="Success Criteria" value={goal.success_criteria} />
+        <RelationshipField label="Current Reality" value={goal.current_reality} />
+        <RelationshipField label="Next Step" value={goal.next_step} />
+        {goal.retired_reason ? <RelationshipField label="Retired Reason" value={goal.retired_reason} /> : null}
+        <div style={{ fontWeight: 700, marginBottom: 6 }}>Steps</div>
+        {steps.length ? steps.map((step) => (
+          <div key={step.step_id} style={{ borderTop: "1px solid #f3f4f6", paddingTop: 8, marginTop: 8 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 4 }}>
+              <strong>#{step.step_id}</strong>
+              <Tag color={stepStatusColor[step.status]} style={{ marginRight: 0 }}>{step.status}</Tag>
+            </div>
+            <div style={{ lineHeight: 1.35, marginBottom: 4 }}>{step.step_text}</div>
+            <div style={{ color: "#6b7280", fontSize: 12, whiteSpace: "pre-wrap" }}>Success: {step.success_criteria}</div>
+            {step.tool_hint ? <div style={{ color: "#6b7280", fontSize: 12 }}>Tool: {step.tool_hint}</div> : null}
+            {step.result_note ? <div style={{ color: "#6b7280", fontSize: 12, whiteSpace: "pre-wrap" }}>Note: {step.result_note}</div> : null}
+          </div>
+        )) : <div style={{ color: "#6b7280", marginBottom: 8 }}>No steps yet.</div>}
+        {events.length ? (
+          <>
+            <div style={{ fontWeight: 700, marginTop: 12, marginBottom: 6 }}>Recent Events</div>
+            {events.map((event) => (
+              <div key={event.event_id} style={{ color: "#6b7280", fontSize: 12, marginBottom: 5 }}>
+                <Tag style={{ marginRight: 6 }}>{event.event_type}</Tag>
+                {event.event_text}
+              </div>
+            ))}
+          </>
+        ) : null}
+        <div style={{ color: "#6b7280", fontSize: 12, marginTop: 8 }}>
+          {goal.updated_dttm || goal.created_dttm || ""}
+        </div>
+      </div>
+    );
+  };
+
+  const SafetyRecordCard = ({ record }: { record: SafetyRecord }) => (
+    <div
+      style={{
+        border: "1px solid #e5e7eb",
+        borderRadius: 8,
+        padding: 10,
+        marginBottom: 10,
+        background: "#fff7ed",
+      }}
+    >
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginBottom: 8 }}>
+        <strong>Safety #{record.safety_record_id}</strong>
+        <Tag color="orange" style={{ marginRight: 0 }}>logged</Tag>
+      </div>
+      <div style={{ lineHeight: 1.4, whiteSpace: "pre-wrap" }}>{record.content}</div>
+      <div style={{ color: "#6b7280", fontSize: 12, marginTop: 8 }}>
+        {[record.created_dttm, `user ${record.user_id}`].filter(Boolean).join(" · ")}
       </div>
     </div>
   );
@@ -528,6 +873,8 @@ export default function SentientPage() {
     if (!input.trim()) return;
     setLoading(true);
     setLogLines([]);
+    isNearBottomRef.current = true;
+    setNewMessagesCount(0);
     const userText = input;
     setInput("");
 
@@ -578,6 +925,8 @@ export default function SentientPage() {
       await fetchSubconsciousDrives();
       await fetchRelationship();
       await fetchBeliefs();
+      await fetchGoals();
+      await fetchSafetyRecords();
       await fetchMood();
       await fetchTemperament();
       await fetchLastRag();
@@ -586,6 +935,8 @@ export default function SentientPage() {
         void fetchSubconsciousDrives();
         void fetchRelationship();
         void fetchBeliefs();
+        void fetchGoals();
+        void fetchSafetyRecords();
         void fetchMood();
         void fetchTemperament();
         void fetchLastRag();
@@ -612,9 +963,9 @@ export default function SentientPage() {
 	  />
 	</Tooltip>
 
-        <Tooltip title="Open drives drawer">
+        <Tooltip title="Open desires drawer">
           <Button size="small" onClick={() => setSubconsciousOpen(true)}>
-            Drives ({activeDrives.length})
+            Desires ({activeDrives.length})
           </Button>
         </Tooltip>
 
@@ -642,6 +993,18 @@ export default function SentientPage() {
           </Button>
         </Tooltip>
 
+        <Tooltip title="Open goals drawer">
+          <Button size="small" onClick={() => setGoalsOpen(true)}>
+            Goals ({activeGoals.length})
+          </Button>
+        </Tooltip>
+
+        <Tooltip title="Open safety records drawer">
+          <Button size="small" onClick={() => setSafetyOpen(true)}>
+            Safety ({safetyRecords.length})
+          </Button>
+        </Tooltip>
+
         <Tooltip title="Open prior injected RAG context">
           <Button size="small" onClick={() => setRagOpen(true)}>
             RAG ({lastRag?.records.length ?? 0})
@@ -652,9 +1015,13 @@ export default function SentientPage() {
 
 
       <div style={{ display: "flex", flexGrow: 1, minHeight: 0 }}>
-        <div style={{ flexGrow: 1, overflowY: "auto", background: "#fff", padding: 10, borderRadius: 8 }}>
+        <div
+          ref={chatScrollRef}
+          onScroll={updateNearBottom}
+          style={{ flexGrow: 1, overflowY: "auto", background: "#fff", padding: 10, borderRadius: 8 }}
+        >
           {messages
-            .filter(m => m.role === "user" || showAll || m.content.includes("[for-human]"))
+            .filter(m => m.role === "user" || (m.role === "assistant" && (showAll || m.content.includes("[for-human]"))))
             .map((m) => (
               <div
                 key={m.conversation_id}
@@ -666,11 +1033,27 @@ export default function SentientPage() {
                 }}
               >
                 <strong>
-                  {showAll ? `[${m.conversation_id}] ` : ""}{m.role === "user" ? "You" : "AI"}:
+                  {showAll ? `[${m.conversation_id}] ` : ""}{speakerLabel(m)}:
                 </strong>{" "}
                 <pre style={{ margin: 0, whiteSpace: "pre-wrap" }}>{displayContent(m)}</pre>
               </div>
             ))}
+          {newMessagesCount > 0 ? (
+            <Button
+              size="small"
+              type="primary"
+              onClick={scrollToBottom}
+              style={{
+                position: "sticky",
+                bottom: 8,
+                zIndex: 2,
+                float: "right",
+                boxShadow: "0 4px 12px rgba(15, 23, 42, 0.18)",
+              }}
+            >
+              New messages ({newMessagesCount})
+            </Button>
+          ) : null}
           <div ref={messagesEndRef} />
         </div>
       </div>
@@ -704,7 +1087,7 @@ export default function SentientPage() {
       </Modal>
 
       <Drawer
-        title="Drives"
+        title="Desires"
         placement="right"
         width={420}
         open={subconsciousOpen}
@@ -715,7 +1098,7 @@ export default function SentientPage() {
           <div style={{ fontWeight: 700, marginBottom: 8 }}>Active</div>
           {activeDrives.length ? activeDrives.map((drive) => (
             <DriveCard key={drive.drive_id} drive={drive} />
-          )) : <div style={{ color: "#6b7280" }}>No active drives yet.</div>}
+          )) : <div style={{ color: "#6b7280" }}>No active desires yet.</div>}
         </div>
 
         <div>
@@ -725,7 +1108,7 @@ export default function SentientPage() {
               .filter((drive) => drive.status === "retired")
               .map((drive) => <DriveCard key={drive.drive_id} drive={drive} />)
           ) : (
-            <div style={{ color: "#6b7280" }}>No retired drives yet.</div>
+            <div style={{ color: "#6b7280" }}>No retired desires yet.</div>
           )}
         </div>
       </Drawer>
@@ -830,6 +1213,50 @@ export default function SentientPage() {
       </Drawer>
 
       <Drawer
+        title="Goals"
+        placement="right"
+        width={620}
+        open={goalsOpen}
+        onClose={() => setGoalsOpen(false)}
+        extra={<Button size="small" onClick={() => void fetchGoals()}>Refresh</Button>}
+      >
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Active / Blocked</div>
+          {activeGoals.length ? activeGoals.map((goal) => (
+            <GoalCard key={goal.goal_id} goal={goal} />
+          )) : <div style={{ color: "#6b7280" }}>No active goals yet.</div>}
+        </div>
+
+        <div>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>Inactive</div>
+          {allGoals.filter((goal) => goal.status === "achieved" || goal.status === "retired").length ? (
+            allGoals
+              .filter((goal) => goal.status === "achieved" || goal.status === "retired")
+              .map((goal) => <GoalCard key={goal.goal_id} goal={goal} />)
+          ) : (
+            <div style={{ color: "#6b7280" }}>No inactive goals yet.</div>
+          )}
+        </div>
+      </Drawer>
+
+      <Drawer
+        title="Safety Records"
+        placement="right"
+        width={560}
+        open={safetyOpen}
+        onClose={() => setSafetyOpen(false)}
+        extra={<Button size="small" onClick={() => void fetchSafetyRecords()}>Refresh</Button>}
+      >
+        {safetyRecords.length ? (
+          safetyRecords.map((record) => (
+            <SafetyRecordCard key={record.safety_record_id} record={record} />
+          ))
+        ) : (
+          <div style={{ color: "#6b7280" }}>No safety records logged yet.</div>
+        )}
+      </Drawer>
+
+      <Drawer
         title="Retrieved Memory"
         placement="right"
         width={620}
@@ -848,16 +1275,13 @@ export default function SentientPage() {
                   <Tag color={lastRag.ragIntent.should_retrieve ? "green" : "default"}>
                     retrieve {lastRag.ragIntent.should_retrieve ? "yes" : "no"}
                   </Tag>
-                  <Tag color={lastRag.ragIntent.should_archive ? "green" : "default"}>
-                    archive {lastRag.ragIntent.should_archive ? "yes" : "no"}
-                  </Tag>
                 </div>
                 <div style={{ color: "#4b5563", lineHeight: 1.4 }}>{lastRag.ragIntent.reason}</div>
               </div>
             ) : null}
             {lastRag.archive ? (
               <div style={{ marginBottom: 14 }}>
-                <div style={{ fontWeight: 700, marginBottom: 6 }}>Prompt Archive</div>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>Single-Prompt Archive</div>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
                   <Tag color={ragArchiveColor(lastRag.archive.status)}>
                     {lastRag.archive.status.replace("_", " ")}

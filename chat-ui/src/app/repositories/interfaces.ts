@@ -81,6 +81,9 @@ export interface Conversations {
   token_count?: number;
   created_dttm?: string;
   updated_dttm?: string;
+  speaker_name?: string | null;
+  speaker_email?: string | null;
+  speaker_role?: 'admin' | 'user' | null;
 }
 export interface updateConversations {
   conversation_id?: number;

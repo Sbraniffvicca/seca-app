@@ -45,6 +45,7 @@ venv/
 # Local AI/Codex notes
 .codex/tmp/
 **/.git.local-backup/
+backups/
 
 # Local archives and scratch areas
 0archive/

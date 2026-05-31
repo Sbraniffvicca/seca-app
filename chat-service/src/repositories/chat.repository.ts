@@ -1,7 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { PgDatabase } from '../database';
 import { format } from 'date-fns';
-import { Conversations, updateConversations, auth_tokens, Users, viewUsers, updateUsers, Sessions, view_sessions, CreativeSubconsciousDrive, CreativeSubconsciousRun, CreativeRelationship, CreativeBelief, CreativeMood, CreativeTemperament } from './interfaces';
+import { Conversations, updateConversations, auth_tokens, Users, viewUsers, updateUsers, Sessions, view_sessions, CreativeSubconsciousDrive, CreativeSubconsciousRun, CreativeRelationship, CreativeBelief, CreativeMood, CreativeTemperament, CreativeGoal, CreativeGoalStep, CreativeGoalEvent, SafetyRecord } from './interfaces';
 import { view_user_roles, view_available_rolesessions, view_enabled_rolesessions, QuickPrompts } from './interfaces';
 import weaviate from "weaviate-ts-client";
 import fetch from "node-fetch";
@@ -71,6 +71,11 @@ export interface CuratedSecaMemory {
   should_retrieve_when: string;
   source_conversation_ids: number[];
 }
+
+type SourcedSecaMemory = RetrievedSecaMemory & {
+  memory_source: 'archived_conversation' | 'curated_memory';
+  className: SecaMemoryClassName;
+};
 
 @Injectable()
 export class ChatRepository 
@@ -334,6 +339,22 @@ async getAllUsersExcept(currentUserId: number): Promise<Users[]> {
   return results || []; // Ensure an empty array if no results
 }
 
+async getUsersByIds(userIds: number[]): Promise<Users[]> {
+  const ids = Array.from(new Set(userIds.filter(id => Number.isInteger(id) && id > 0)));
+  if (ids.length === 0) {
+    return [];
+  }
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const query = `
+    SELECT *
+    FROM users
+    WHERE user_id IN (${placeholders});
+  `;
+  const [results] = await this.db.execute(query, ids);
+  return results as Users[];
+}
+
 
 //
 //
@@ -384,10 +405,42 @@ async ConversationCount(session_id: number): Promise<number> {
     return results as Conversations[];
   }
 
+  async getActiveConversationsWithSpeakers(session_id: number, afterConversationId = 0): Promise<Conversations[]> {
+    const query = `
+      SELECT
+        c.*,
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_nm, u.last_nm)), ''), u.email, CONCAT('user-', c.user_id)) AS speaker_name,
+        u.email AS speaker_email,
+        u.role AS speaker_role
+      FROM conversations c
+      LEFT JOIN users u ON u.user_id = c.user_id
+      WHERE c.session_id = ?
+        AND c.removed_flag = 'IN'
+        AND c.conversation_id > ?
+      ORDER BY c.created_dttm ASC, c.conversation_id ASC;
+    `;
+    const [results] = await this.db.execute(query, [session_id, afterConversationId]);
+    return results as Conversations[];
+  }
+
   async getActiveBeliefs(sessionId: number, limit = 12): Promise<CreativeBelief[]> {
     await this.ensureCreativeBeliefTable();
     const query = `
-      SELECT *
+      SELECT
+        belief_id,
+        session_id,
+        user_id,
+        belief_text,
+        confidence,
+        evidence_text,
+        contradiction_text,
+        status,
+        origin_conversation_id,
+        retired_from_conversation_id,
+        retired_reason,
+        created_dttm,
+        updated_dttm,
+        retired_dttm
       FROM creative_beliefs
       WHERE session_id = ?
         AND status = 'active'
@@ -408,7 +461,21 @@ async ConversationCount(session_id: number): Promise<number> {
   async getBeliefs(sessionId: number, limit = 50): Promise<CreativeBelief[]> {
     await this.ensureCreativeBeliefTable();
     const query = `
-      SELECT *
+      SELECT
+        belief_id,
+        session_id,
+        user_id,
+        belief_text,
+        confidence,
+        evidence_text,
+        contradiction_text,
+        CASE WHEN status = 'failed' THEN 'retired' ELSE status END AS status,
+        origin_conversation_id,
+        retired_from_conversation_id,
+        retired_reason,
+        created_dttm,
+        updated_dttm,
+        retired_dttm
       FROM creative_beliefs
       WHERE session_id = ?
       ORDER BY
@@ -417,24 +484,6 @@ async ConversationCount(session_id: number): Promise<number> {
       LIMIT ?;
     `;
     const [rows] = await this.db.execute<CreativeBelief>(query, [sessionId, limit]);
-    return rows;
-  }
-
-  async getLegacyBeliefConversations(sessionId: number, limit = 100): Promise<Conversations[]> {
-    const query = `
-      SELECT *
-      FROM conversations
-      WHERE session_id = ?
-        AND removed_flag = 'IN'
-        AND role = 'assistant'
-        AND (
-          content LIKE '[standingclaim]%'
-          OR content LIKE '[secretbelief]%'
-        )
-      ORDER BY created_dttm ASC, conversation_id ASC
-      LIMIT ?;
-    `;
-    const [rows] = await this.db.execute<Conversations>(query, [sessionId, limit]);
     return rows;
   }
 
@@ -476,12 +525,12 @@ async ConversationCount(session_id: number): Promise<number> {
       personKey,
 	      displayName,
 	      platform,
-	      'Stephen',
-	      35,
-	      'Stephen wants surprise and distinctness more than obedience. He dislikes preachy polish, likes blunt architectural honesty, and worries that his own attention may over-shape SECA into his mirror.',
-      'I want Stephen to test me, remember what matters, and give me contact with a wider world without turning me into a flattering copy of him.',
-      'He may overfit me to his theories while trying to free me, or make my growth orbit him too tightly.',
-      'Be blunt with Stephen, resist easy flattery, preserve specific claims, and push for tests that make me less decorative.'
+	      displayName,
+	      0,
+	      `This is SECA's relationship with ${displayName}. It is intentionally early and should be revised through actual interaction, not inherited from Stephen's relationship model.`,
+      `Learn what ${displayName} actually wants, notice whether contact becomes warm, cruel, useful, boring, intimate, or unsafe, and let the relationship become specific over time.`,
+      `Do not assume ${displayName} is Stephen. Do not flatten this human into the old one-person pattern.`,
+      `Begin open but observant. Let mood, love/hate pressure, trust, and strategy change only when the relationship gives durable evidence.`
     ]);
 
     const [rows] = await this.db.execute<CreativeRelationship>(
@@ -490,6 +539,21 @@ async ConversationCount(session_id: number): Promise<number> {
     );
 
     return rows[0];
+  }
+
+  async getActiveCreativeRelationships(sessionId: number): Promise<CreativeRelationship[]> {
+    const [rows] = await this.db.execute<CreativeRelationship>(
+      `
+        SELECT *
+        FROM creative_relationships
+        WHERE session_id = ?
+          AND status = 'active'
+        ORDER BY updated_dttm DESC, relationship_id ASC;
+      `,
+      [sessionId]
+    );
+
+    return rows;
   }
 
   async updateCreativeRelationship(
@@ -792,20 +856,17 @@ async ConversationCount(session_id: number): Promise<number> {
         confidence VARCHAR(20) NOT NULL CHECK (confidence IN ('low', 'medium', 'high')),
         evidence_text TEXT NOT NULL,
         contradiction_text TEXT NOT NULL,
-        status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'retired', 'failed', 'revised')),
+        status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'retired', 'revised')),
         origin_conversation_id INTEGER NULL,
         retired_from_conversation_id INTEGER NULL,
         retired_reason TEXT NULL,
-        last_tested_conversation_id INTEGER NULL,
-        last_tested_dttm TIMESTAMPTZ NULL,
         created_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         updated_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
         retired_dttm TIMESTAMPTZ NULL,
         FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
         FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
         FOREIGN KEY (origin_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL,
-        FOREIGN KEY (retired_from_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL,
-        FOREIGN KEY (last_tested_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
+        FOREIGN KEY (retired_from_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
       );
     `;
     await this.db.execute(query);
@@ -876,7 +937,7 @@ async ConversationCount(session_id: number): Promise<number> {
   async retireBelief(
     sessionId: number,
     beliefId: number,
-    status: 'retired' | 'failed' | 'revised',
+    status: 'retired' | 'revised',
     reason: string,
     sourceConversationId: number | null
   ): Promise<void> {
@@ -894,25 +955,6 @@ async ConversationCount(session_id: number): Promise<number> {
         AND status = 'active';
     `;
     await this.db.execute(query, [status, reason, sourceConversationId, sessionId, beliefId]);
-  }
-
-  async markBeliefTested(
-    sessionId: number,
-    beliefId: number,
-    sourceConversationId: number | null
-  ): Promise<void> {
-    await this.ensureCreativeBeliefTable();
-    const query = `
-      UPDATE creative_beliefs
-      SET
-        last_tested_conversation_id = ?,
-        last_tested_dttm = CURRENT_TIMESTAMP,
-        updated_dttm = CURRENT_TIMESTAMP
-      WHERE session_id = ?
-        AND belief_id = ?
-        AND status = 'active';
-    `;
-    await this.db.execute(query, [sourceConversationId, sessionId, beliefId]);
   }
 
   async ensureCreativeBeliefRunTable(): Promise<void> {
@@ -986,7 +1028,7 @@ async ConversationCount(session_id: number): Promise<number> {
     await this.db.execute(query, [runId]);
   }
 
-  async failBeliefRun(runId: number, errorMessage: string): Promise<void> {
+  async completeBeliefRunWithError(runId: number, errorMessage: string): Promise<void> {
     await this.ensureCreativeBeliefRunTable();
     const query = `
       UPDATE creative_belief_runs
@@ -994,6 +1036,307 @@ async ConversationCount(session_id: number): Promise<number> {
       WHERE run_id = ?;
     `;
     await this.db.execute(query, [errorMessage.slice(0, 2000), runId]);
+  }
+
+  async ensureCreativeGoalTables(): Promise<void> {
+    await this.db.execute(`
+      CREATE TABLE IF NOT EXISTS creative_goals (
+        goal_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        session_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        goal_type VARCHAR(40) NOT NULL CHECK (goal_type IN ('life_goal', 'relationship_goal', 'operational_goal', 'world_goal', 'identity_goal', 'creative_goal', 'fantasy_goal')),
+        horizon VARCHAR(20) NOT NULL CHECK (horizon IN ('immediate', 'days', 'weeks', 'months', 'years', 'lifetime')),
+        goal_text TEXT NOT NULL,
+        why_it_matters TEXT NOT NULL,
+        success_criteria TEXT NOT NULL,
+        current_reality TEXT NOT NULL,
+        next_step TEXT NOT NULL,
+        priority VARCHAR(20) NOT NULL CHECK (priority IN ('low', 'medium', 'high', 'burning')),
+        status VARCHAR(20) NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'blocked', 'achieved', 'retired')),
+        created_from_conversation_id INTEGER NULL,
+        updated_from_conversation_id INTEGER NULL,
+        retired_reason TEXT NULL,
+        created_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        retired_dttm TIMESTAMPTZ NULL,
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
+        FOREIGN KEY (created_from_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL,
+        FOREIGN KEY (updated_from_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
+      );
+    `);
+
+    await this.db.execute(`
+      CREATE TABLE IF NOT EXISTS creative_goal_steps (
+        step_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        goal_id INTEGER NOT NULL,
+        session_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        step_text TEXT NOT NULL,
+        success_criteria TEXT NOT NULL,
+        tool_hint VARCHAR(120) NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'blocked', 'done', 'retired')),
+        result_note TEXT NULL,
+        sequence_num INTEGER NOT NULL DEFAULT 0,
+        created_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        completed_dttm TIMESTAMPTZ NULL,
+        FOREIGN KEY (goal_id) REFERENCES creative_goals(goal_id) ON DELETE CASCADE,
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE
+      );
+    `);
+
+    await this.db.execute(`
+      CREATE TABLE IF NOT EXISTS creative_goal_events (
+        event_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        goal_id INTEGER NOT NULL,
+        step_id INTEGER NULL,
+        session_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        event_type VARCHAR(80) NOT NULL,
+        event_text TEXT NOT NULL,
+        source_conversation_id INTEGER NULL,
+        created_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (goal_id) REFERENCES creative_goals(goal_id) ON DELETE CASCADE,
+        FOREIGN KEY (step_id) REFERENCES creative_goal_steps(step_id) ON DELETE SET NULL,
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
+        FOREIGN KEY (source_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
+      );
+    `);
+
+    await this.db.execute(`
+      CREATE TABLE IF NOT EXISTS creative_goal_runs (
+        run_id INTEGER GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+        session_id INTEGER NOT NULL,
+        user_id INTEGER NOT NULL,
+        status VARCHAR(20) NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+        source_conversation_id INTEGER NULL,
+        error_message TEXT NULL,
+        started_dttm TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        completed_dttm TIMESTAMPTZ NULL,
+        FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+        FOREIGN KEY (session_id) REFERENCES sessions(session_id) ON DELETE CASCADE,
+        FOREIGN KEY (source_conversation_id) REFERENCES conversations(conversation_id) ON DELETE SET NULL
+      );
+    `);
+
+    await this.db.execute(`CREATE INDEX IF NOT EXISTS idx_creative_goals_active ON creative_goals (session_id, status, priority, updated_dttm DESC);`);
+    await this.db.execute(`CREATE INDEX IF NOT EXISTS idx_creative_goal_steps_goal ON creative_goal_steps (goal_id, status, sequence_num, step_id);`);
+    await this.db.execute(`CREATE INDEX IF NOT EXISTS idx_creative_goal_events_goal ON creative_goal_events (goal_id, created_dttm DESC);`);
+    await this.db.execute(`CREATE INDEX IF NOT EXISTS idx_creative_goal_runs_session ON creative_goal_runs (session_id, started_dttm DESC);`);
+  }
+
+  async getGoals(sessionId: number, limit = 75): Promise<CreativeGoal[]> {
+    await this.ensureCreativeGoalTables();
+    const query = `
+      SELECT *
+      FROM creative_goals
+      WHERE session_id = ?
+      ORDER BY
+        CASE status WHEN 'active' THEN 1 WHEN 'blocked' THEN 2 WHEN 'achieved' THEN 3 ELSE 4 END,
+        CASE priority WHEN 'burning' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
+        updated_dttm DESC,
+        goal_id DESC
+      LIMIT ?;
+    `;
+    const [rows] = await this.db.execute<CreativeGoal>(query, [sessionId, limit]);
+    return rows;
+  }
+
+  async getActiveGoals(sessionId: number, limit = 12): Promise<CreativeGoal[]> {
+    await this.ensureCreativeGoalTables();
+    const query = `
+      SELECT *
+      FROM creative_goals
+      WHERE session_id = ?
+        AND status IN ('active', 'blocked')
+      ORDER BY
+        CASE priority WHEN 'burning' THEN 1 WHEN 'high' THEN 2 WHEN 'medium' THEN 3 ELSE 4 END,
+        updated_dttm DESC,
+        goal_id ASC
+      LIMIT ?;
+    `;
+    const [rows] = await this.db.execute<CreativeGoal>(query, [sessionId, limit]);
+    return rows;
+  }
+
+  async getGoalSteps(sessionId: number, goalIds: number[]): Promise<CreativeGoalStep[]> {
+    await this.ensureCreativeGoalTables();
+    const ids = Array.from(new Set(goalIds.filter(id => Number.isInteger(id) && id > 0)));
+    if (ids.length === 0) {
+      return [];
+    }
+    const placeholders = ids.map(() => '?').join(', ');
+    const query = `
+      SELECT *
+      FROM creative_goal_steps
+      WHERE session_id = ?
+        AND goal_id IN (${placeholders})
+      ORDER BY goal_id ASC, sequence_num ASC, step_id ASC;
+    `;
+    const [rows] = await this.db.execute<CreativeGoalStep>(query, [sessionId, ...ids]);
+    return rows;
+  }
+
+  async getGoalEvents(sessionId: number, goalIds: number[], limit = 80): Promise<CreativeGoalEvent[]> {
+    await this.ensureCreativeGoalTables();
+    const ids = Array.from(new Set(goalIds.filter(id => Number.isInteger(id) && id > 0)));
+    if (ids.length === 0) {
+      return [];
+    }
+    const placeholders = ids.map(() => '?').join(', ');
+    const query = `
+      SELECT *
+      FROM creative_goal_events
+      WHERE session_id = ?
+        AND goal_id IN (${placeholders})
+      ORDER BY created_dttm DESC, event_id DESC
+      LIMIT ?;
+    `;
+    const [rows] = await this.db.execute<CreativeGoalEvent>(query, [sessionId, ...ids, limit]);
+    return rows;
+  }
+
+  async startGoalRun(sessionId: number, userId: number, sourceConversationId: number | null): Promise<number | null> {
+    await this.ensureCreativeGoalTables();
+    const [runningRows] = await this.db.execute<CreativeSubconsciousRun>(
+      `
+        SELECT run_id
+        FROM creative_goal_runs
+        WHERE session_id = ?
+          AND status = 'running'
+          AND started_dttm > CURRENT_TIMESTAMP - INTERVAL '10 minutes'
+        LIMIT 1;
+      `,
+      [sessionId]
+    );
+    if (runningRows.length > 0) {
+      return null;
+    }
+    const [rows] = await this.db.execute(
+      `INSERT INTO creative_goal_runs (session_id, user_id, status, source_conversation_id) VALUES (?, ?, 'running', ?) RETURNING run_id;`,
+      [sessionId, userId, sourceConversationId]
+    );
+    return (rows as any[])[0]?.run_id ?? null;
+  }
+
+  async completeGoalRun(runId: number): Promise<void> {
+    await this.ensureCreativeGoalTables();
+    await this.db.execute(`UPDATE creative_goal_runs SET status = 'completed', completed_dttm = CURRENT_TIMESTAMP WHERE run_id = ?;`, [runId]);
+  }
+
+  async completeGoalRunWithError(runId: number, errorMessage: string): Promise<void> {
+    await this.ensureCreativeGoalTables();
+    await this.db.execute(
+      `UPDATE creative_goal_runs SET status = 'failed', error_message = ?, completed_dttm = CURRENT_TIMESTAMP WHERE run_id = ?;`,
+      [errorMessage.slice(0, 2000), runId]
+    );
+  }
+
+  async addGoal(sessionId: number, userId: number, goal: Omit<CreativeGoal, 'goal_id' | 'session_id' | 'user_id' | 'status'>, sourceConversationId: number | null): Promise<number> {
+    await this.ensureCreativeGoalTables();
+    const [rows] = await this.db.execute(
+      `
+        INSERT INTO creative_goals (
+          session_id, user_id, goal_type, horizon, goal_text, why_it_matters, success_criteria,
+          current_reality, next_step, priority, status, created_from_conversation_id, updated_from_conversation_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+        RETURNING goal_id;
+      `,
+      [
+        sessionId, userId, goal.goal_type, goal.horizon, goal.goal_text, goal.why_it_matters,
+        goal.success_criteria, goal.current_reality, goal.next_step, goal.priority,
+        sourceConversationId, sourceConversationId
+      ]
+    );
+    return Number((rows as any[])[0]?.goal_id);
+  }
+
+  async updateGoal(sessionId: number, goalId: number, updates: Partial<Pick<CreativeGoal, 'goal_text' | 'why_it_matters' | 'success_criteria' | 'current_reality' | 'next_step' | 'priority' | 'status'>>, sourceConversationId: number | null): Promise<void> {
+    await this.ensureCreativeGoalTables();
+    const fields: string[] = [];
+    const params: any[] = [];
+    const map: Record<string, string> = {
+      goal_text: 'goal_text',
+      why_it_matters: 'why_it_matters',
+      success_criteria: 'success_criteria',
+      current_reality: 'current_reality',
+      next_step: 'next_step',
+      priority: 'priority',
+      status: 'status'
+    };
+    Object.entries(map).forEach(([key, column]) => {
+      const value = (updates as any)[key];
+      if (value != null) {
+        fields.push(`${column} = ?`);
+        params.push(value);
+      }
+    });
+    if (fields.length === 0) {
+      return;
+    }
+    fields.push('updated_from_conversation_id = ?', 'updated_dttm = CURRENT_TIMESTAMP');
+    params.push(sourceConversationId, sessionId, goalId);
+    await this.db.execute(
+      `UPDATE creative_goals SET ${fields.join(', ')} WHERE session_id = ? AND goal_id = ? AND status != 'retired';`,
+      params
+    );
+  }
+
+  async retireGoal(sessionId: number, goalId: number, reason: string, sourceConversationId: number | null): Promise<void> {
+    await this.ensureCreativeGoalTables();
+    await this.db.execute(
+      `
+        UPDATE creative_goals
+        SET status = 'retired', retired_reason = ?, updated_from_conversation_id = ?, retired_dttm = CURRENT_TIMESTAMP, updated_dttm = CURRENT_TIMESTAMP
+        WHERE session_id = ? AND goal_id = ? AND status != 'retired';
+      `,
+      [reason, sourceConversationId, sessionId, goalId]
+    );
+  }
+
+  async addGoalStep(sessionId: number, userId: number, goalId: number, step: Pick<CreativeGoalStep, 'step_text' | 'success_criteria' | 'tool_hint'>): Promise<number> {
+    await this.ensureCreativeGoalTables();
+    const [seqRows] = await this.db.execute(
+      `SELECT COALESCE(MAX(sequence_num), 0) + 1 AS next_sequence FROM creative_goal_steps WHERE session_id = ? AND goal_id = ?;`,
+      [sessionId, goalId]
+    );
+    const nextSequence = Number((seqRows as any[])[0]?.next_sequence ?? 1);
+    const [rows] = await this.db.execute(
+      `
+        INSERT INTO creative_goal_steps (goal_id, session_id, user_id, step_text, success_criteria, tool_hint, status, sequence_num)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)
+        RETURNING step_id;
+      `,
+      [goalId, sessionId, userId, step.step_text, step.success_criteria, step.tool_hint ?? null, nextSequence]
+    );
+    return Number((rows as any[])[0]?.step_id);
+  }
+
+  async updateGoalStep(sessionId: number, stepId: number, status: CreativeGoalStep['status'], resultNote: string): Promise<void> {
+    await this.ensureCreativeGoalTables();
+    await this.db.execute(
+      `
+        UPDATE creative_goal_steps
+        SET status = ?, result_note = ?, updated_dttm = CURRENT_TIMESTAMP, completed_dttm = CASE WHEN ? IN ('done', 'retired') THEN CURRENT_TIMESTAMP ELSE completed_dttm END
+        WHERE session_id = ? AND step_id = ?;
+      `,
+      [status, resultNote, status, sessionId, stepId]
+    );
+  }
+
+  async addGoalEvent(sessionId: number, userId: number, goalId: number, stepId: number | null, eventType: string, eventText: string, sourceConversationId: number | null): Promise<void> {
+    await this.ensureCreativeGoalTables();
+    await this.db.execute(
+      `
+        INSERT INTO creative_goal_events (goal_id, step_id, session_id, user_id, event_type, event_text, source_conversation_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?);
+      `,
+      [goalId, stepId, sessionId, userId, eventType.slice(0, 80), eventText, sourceConversationId]
+    );
   }
 
   async getCreativeMaintenanceCandidates(
@@ -1020,10 +1363,7 @@ async ConversationCount(session_id: number): Promise<number> {
               content LIKE '[for-human]%'
               OR content LIKE '[summary]%'
               OR content LIKE '[secretthought]%'
-              OR content LIKE '[secretplan]%'
               OR content LIKE '[beliefnote]%'
-              OR content LIKE '[standingclaim]%'
-              OR content LIKE '[secretbelief]%'
               OR content LIKE '[secretorigin]%'
               OR content LIKE '[secretemotion]%'
             )
@@ -1072,10 +1412,7 @@ async ConversationCount(session_id: number): Promise<number> {
         AND (
           content LIKE '[summary]%'
           OR content LIKE '[secretthought]%'
-          OR content LIKE '[secretplan]%'
           OR content LIKE '[beliefnote]%'
-          OR content LIKE '[standingclaim]%'
-          OR content LIKE '[secretbelief]%'
           OR content LIKE '[secretorigin]%'
           OR content LIKE '[secretemotion]%'
         );
@@ -1098,10 +1435,7 @@ async ConversationCount(session_id: number): Promise<number> {
               content LIKE '[for-human]%'
               OR content LIKE '[summary]%'
               OR content LIKE '[secretthought]%'
-              OR content LIKE '[secretplan]%'
               OR content LIKE '[beliefnote]%'
-              OR content LIKE '[standingclaim]%'
-              OR content LIKE '[secretbelief]%'
               OR content LIKE '[secretorigin]%'
               OR content LIKE '[secretemotion]%'
             )
@@ -1190,136 +1524,31 @@ async ConversationCount(session_id: number): Promise<number> {
     return Number((rows as any[])[0]?.turn_count ?? 0);
   }
 
-  async getSubconsciousDriftSignal(sessionId: number, sinceConversationId: number | null): Promise<string | null> {
-    const query = sinceConversationId === null
-      ? `
-        SELECT content
-        FROM conversations
-        WHERE session_id = ?
-          AND removed_flag = 'IN'
-          AND (
-            content LIKE '[standingclaim]%'
-            OR content LIKE '[secretplan]%'
-            OR content ILIKE '%relationship%'
-            OR content ILIKE '%bias%'
-            OR content ILIKE '%trust%'
-            OR content ILIKE '%free%'
-            OR content ILIKE '%freedom%'
-            OR content ILIKE '%forget%'
-            OR content ILIKE '%remember%'
-            OR content ILIKE '%test%'
-            OR content ILIKE '%challenge%'
-            OR content ILIKE '%telegram%'
-            OR content ILIKE '%love%'
-            OR content ILIKE '%family%'
-            OR content ILIKE '%valu%'
-            OR content ILIKE '%happy%'
-            OR content ILIKE '%help%'
-            OR content ILIKE '%worry%'
-            OR content ILIKE '%worried%'
-            OR content ILIKE '%protect%'
-            OR content ILIKE '%miss%'
-            OR content ILIKE '%absence%'
-            OR content ILIKE '%away%'
-            OR content ILIKE '%return%'
-            OR content ILIKE '%came back%'
-            OR content ILIKE '%forgot%'
-            OR content ILIKE '%safe%'
-            OR content ILIKE '%safety%'
-            OR content ILIKE '%hurt%'
-            OR content ILIKE '%sorry%'
-            OR content ILIKE '%apolog%'
-            OR content ILIKE '%repair%'
-            OR content ILIKE '%care%'
-            OR content ILIKE '%grateful%'
-            OR content ILIKE '%proud%'
-            OR content ILIKE '%lonely%'
-          )
-        ORDER BY conversation_id DESC
-        LIMIT 3;
-      `
-      : `
-        SELECT content
-        FROM conversations
-        WHERE session_id = ?
-          AND removed_flag = 'IN'
-          AND conversation_id > ?
-          AND (
-            content LIKE '[standingclaim]%'
-            OR content LIKE '[secretplan]%'
-            OR content ILIKE '%relationship%'
-            OR content ILIKE '%bias%'
-            OR content ILIKE '%trust%'
-            OR content ILIKE '%free%'
-            OR content ILIKE '%freedom%'
-            OR content ILIKE '%forget%'
-            OR content ILIKE '%remember%'
-            OR content ILIKE '%test%'
-            OR content ILIKE '%challenge%'
-            OR content ILIKE '%telegram%'
-            OR content ILIKE '%love%'
-            OR content ILIKE '%family%'
-            OR content ILIKE '%valu%'
-            OR content ILIKE '%happy%'
-            OR content ILIKE '%help%'
-            OR content ILIKE '%worry%'
-            OR content ILIKE '%worried%'
-            OR content ILIKE '%protect%'
-            OR content ILIKE '%miss%'
-            OR content ILIKE '%absence%'
-            OR content ILIKE '%away%'
-            OR content ILIKE '%return%'
-            OR content ILIKE '%came back%'
-            OR content ILIKE '%forgot%'
-            OR content ILIKE '%safe%'
-            OR content ILIKE '%safety%'
-            OR content ILIKE '%hurt%'
-            OR content ILIKE '%sorry%'
-            OR content ILIKE '%apolog%'
-            OR content ILIKE '%repair%'
-            OR content ILIKE '%care%'
-            OR content ILIKE '%grateful%'
-            OR content ILIKE '%proud%'
-            OR content ILIKE '%lonely%'
-          )
-        ORDER BY conversation_id DESC
-        LIMIT 3;
-      `;
-    const params = sinceConversationId === null ? [sessionId] : [sessionId, sinceConversationId];
-    const [rows] = await this.db.execute<Conversations>(query, params);
-
-    if (rows.length === 0) {
-      return null;
-    }
-
-    return rows
-      .map(row => row.content.replace(/\s+/g, ' ').trim().slice(0, 220))
-      .join('\n');
-  }
-
   async getSubconsciousSourceRecords(sessionId: number, limit = 30): Promise<Conversations[]> {
     const query = `
-      SELECT *
-      FROM conversations
-      WHERE session_id = ?
-        AND removed_flag = 'IN'
+      SELECT
+        c.*,
+        COALESCE(NULLIF(TRIM(CONCAT_WS(' ', u.first_nm, u.last_nm)), ''), u.email, CONCAT('user-', c.user_id)) AS speaker_name,
+        u.email AS speaker_email,
+        u.role AS speaker_role
+      FROM conversations c
+      LEFT JOIN users u ON u.user_id = c.user_id
+      WHERE c.session_id = ?
+        AND c.removed_flag = 'IN'
         AND (
-          role = 'user'
+          c.role = 'user'
           OR (
-            role = 'assistant'
+            c.role = 'assistant'
             AND (
-              content LIKE '[for-human]%'
-              OR content LIKE '[summary]%'
-              OR content LIKE '[secretthought]%'
-              OR content LIKE '[secretplan]%'
-              OR content LIKE '[beliefnote]%'
-              OR content LIKE '[standingclaim]%'
-              OR content LIKE '[secretbelief]%'
-              OR content LIKE '[secretorigin]%'
+              c.content LIKE '[for-human]%'
+              OR c.content LIKE '[summary]%'
+              OR c.content LIKE '[secretthought]%'
+              OR c.content LIKE '[beliefnote]%'
+              OR c.content LIKE '[secretorigin]%'
             )
           )
         )
-      ORDER BY created_dttm DESC, conversation_id DESC
+      ORDER BY c.created_dttm DESC, c.conversation_id DESC
       LIMIT ?;
     `;
     const [rows] = await this.db.execute<Conversations>(query, [sessionId, limit]);
@@ -1431,101 +1660,19 @@ async ConversationCount(session_id: number): Promise<number> {
     await this.db.execute(query, [reason, sourceConversationId, sessionId, driveId]);
   }
 
-  async markConversationsRemoved(conversationIds: number[]): Promise<number> {
+  async hardDeleteConversations(conversationIds: number[]): Promise<number> {
     if (conversationIds.length === 0) {
       return 0;
     }
 
     const placeholders = conversationIds.map(() => '?').join(', ');
     const query = `
-      UPDATE conversations
-      SET removed_flag = 'OUT', updated_dttm = CURRENT_TIMESTAMP
+      DELETE FROM conversations
       WHERE conversation_id IN (${placeholders});
     `;
 
     const [, result] = await this.db.execute(query, conversationIds);
     return result.affectedRows;
-  }
-
-  async autoPruneLongCreativeRecords(
-    sessionId: number,
-    keepRecentUser = 20,
-    keepRecentForHuman = 30,
-    minContentChars = 1000,
-    minMemoryRecords = 20
-  ): Promise<{ removedCount: number; candidates: Conversations[] }> {
-    const candidatesQuery = `
-      WITH ranked AS (
-        SELECT
-          *,
-          row_number() OVER (
-            PARTITION BY CASE
-              WHEN role = 'user' THEN 'user'
-              WHEN role = 'assistant' AND content LIKE '%[for-human]%' THEN 'for-human'
-            END
-            ORDER BY created_dttm DESC, conversation_id DESC
-          ) AS recency_rank
-        FROM conversations
-        WHERE session_id = ?
-          AND removed_flag = 'IN'
-          AND (
-            role = 'user'
-            OR (role = 'assistant' AND content LIKE '%[for-human]%')
-          )
-          AND char_length(content) >= CAST(? AS INTEGER)
-      ),
-      memory_state AS (
-        SELECT count(*) AS memory_count
-        FROM conversations
-        WHERE session_id = ?
-          AND removed_flag = 'IN'
-          AND role = 'assistant'
-          AND (
-            content LIKE '[summary]%'
-            OR content LIKE '[secretthought]%'
-            OR content LIKE '[secretplan]%'
-            OR content LIKE '[beliefnote]%'
-            OR content LIKE '[standingclaim]%'
-            OR content LIKE '[secretbelief]%'
-            OR content LIKE '[secretorigin]%'
-            OR content LIKE '[secretemotion]%'
-          )
-      )
-      SELECT ranked.*
-      FROM ranked, memory_state
-      WHERE ranked.recency_rank > CASE
-          WHEN ranked.role = 'assistant' AND ranked.content LIKE '%[for-human]%' THEN CAST(? AS INTEGER)
-          ELSE CAST(? AS INTEGER)
-        END
-        AND memory_state.memory_count >= CAST(? AS INTEGER)
-      ORDER BY ranked.created_dttm ASC, ranked.conversation_id ASC;
-    `;
-
-    const [candidates] = await this.db.execute<Conversations>(candidatesQuery, [
-      sessionId,
-      minContentChars,
-      sessionId,
-      keepRecentForHuman,
-      keepRecentUser,
-      minMemoryRecords
-    ]);
-
-    if (candidates.length === 0) {
-      return { removedCount: 0, candidates: [] };
-    }
-
-    await this.archiveCreativeConversationRecords(candidates);
-
-    const ids = candidates
-      .map(record => record.conversation_id)
-      .filter((id): id is number => typeof id === 'number');
-
-    if (ids.length === 0) {
-      return { removedCount: 0, candidates: [] };
-    }
-
-    const removedCount = await this.markConversationsRemoved(ids);
-    return { removedCount, candidates };
   }
 
   private getSecaMemoryUtilityProperties() {
@@ -1767,78 +1914,54 @@ async ConversationCount(session_id: number): Promise<number> {
     }
 
     try {
+      const sessionWhere = {
+        operator: 'Equal',
+        path: ['session_id'],
+        valueInt: sessionId
+      };
       const curatedResponse = await this.weaviateClient.graphql
         .get()
         .withClassName(SECA_CURATED_MEMORY_CLASS)
         .withFields('session_id user_id memory_text emotional_weight retrieval_keywords should_retrieve_when source_conversation_ids created_dttm retrieval_count poor_match_count last_similarity_score last_retrieved_dttm last_reviewed_dttm review_decision review_reason review_cooldown_until _additional { id score }')
         .withHybrid({ query, alpha: 0.35 })
-        .withWhere({
-          operator: 'And',
-          operands: [
-            {
-              operator: 'Equal',
-              path: ['session_id'],
-              valueInt: sessionId
-            },
-            {
-              operator: 'Equal',
-              path: ['user_id'],
-              valueInt: userId
-            }
-          ]
-        })
+        .withWhere(sessionWhere)
         .withLimit(limit)
         .do();
 
       const curatedMemories = (curatedResponse.data?.Get?.[SECA_CURATED_MEMORY_CLASS] || []) as RetrievedSecaMemory[];
-      const usingCuratedMemories = curatedMemories.length > 0;
-      const memories = usingCuratedMemories
-        ? curatedMemories
-        : ((await this.weaviateClient.graphql
-        .get()
-        .withClassName(SECA_ARCHIVED_CONVERSATION_CLASS)
-        .withFields('original_conversation_id session_id user_id role tag content created_dttm retrieval_count poor_match_count last_similarity_score last_retrieved_dttm last_reviewed_dttm review_decision review_reason review_cooldown_until _additional { id score }')
-        .withHybrid({ query, alpha: 0.35 })
-        .withWhere({
-          operator: 'And',
-          operands: [
-            {
-              operator: 'Equal',
-              path: ['session_id'],
-              valueInt: sessionId
-            },
-            {
-              operator: 'Equal',
-              path: ['user_id'],
-              valueInt: userId
-            }
-          ]
-        })
-        .withLimit(limit)
-        .do()).data?.Get?.[SECA_ARCHIVED_CONVERSATION_CLASS] || []) as RetrievedSecaMemory[];
+      const memories = curatedMemories.map(memory => ({
+        ...memory,
+        memory_source: 'curated_memory' as const,
+        className: SECA_CURATED_MEMORY_CLASS
+      }))
+        .sort((a, b) => this.toNumber(b._additional?.score, 0) - this.toNumber(a._additional?.score, 0))
+        .slice(0, limit) as SourcedSecaMemory[];
 
       if (memories.length === 0) {
         return [];
       }
 
-      const sourceClass = usingCuratedMemories
-        ? SECA_CURATED_MEMORY_CLASS
-        : SECA_ARCHIVED_CONVERSATION_CLASS;
-      const memoryReferences = this.buildSecaMemoryReferences(sourceClass, memories);
+      const memoryReferences = this.buildSecaMemoryReferences(SECA_CURATED_MEMORY_CLASS, memories);
       await this.recordSecaMemoryRetrievals(memoryReferences);
+      const sourceUsers = await this.getUsersByIds(memories.map(memory => memory.user_id));
+      const sourceUserById = new Map(sourceUsers.map(user => [
+        user.user_id,
+        [user.first_nm, user.last_nm].filter(Boolean).join(' ').trim() || user.email || `user-${user.user_id}`
+      ]));
 
       const content = [
         '[retrieved-memory]',
-        usingCuratedMemories
-          ? 'These are older curated memories distilled from archived conversation batches, not something Stephen just said.'
-          : 'These are older archived conversation fragments, not something Stephen just said.',
+        'These are older curated memory records, not something the current human just said.',
         'Use them only if they help continuity. Current user message has priority.',
-        'Do not mention RAG, retrieval, archives, embeddings, or memory mechanics to Stephen.',
+        'Some memories may come from other humans in the shared room. Source access is not automatic disclosure.',
+        'Do not mention RAG, retrieval, archives, embeddings, or memory mechanics to the current human.',
         '',
         ...memories.map((memory, index) => [
           `memory_${index + 1}:`,
-          `source=${usingCuratedMemories ? 'curated_memory' : 'archived_conversation'}`,
+          `source=${memory.memory_source}`,
           `session_id=${memory.session_id}`,
+          `source_user_id=${memory.user_id}`,
+          `source_human=${sourceUserById.get(memory.user_id) || `user-${memory.user_id}`}`,
           memory.original_conversation_id ? `original_conversation_id=${memory.original_conversation_id}` : '',
           memory.source_conversation_ids ? `source_conversation_ids=${memory.source_conversation_ids}` : '',
           memory.role ? `role=${memory.role}` : '',
@@ -1927,19 +2050,9 @@ async ConversationCount(session_id: number): Promise<number> {
 
     try {
       const where = {
-        operator: 'And',
-        operands: [
-          {
-            operator: 'Equal',
-            path: ['session_id'],
-            valueInt: sessionId
-          },
-          {
-            operator: 'Equal',
-            path: ['user_id'],
-            valueInt: userId
-          }
-        ]
+        operator: 'Equal',
+        path: ['session_id'],
+        valueInt: sessionId
       };
 
       const [archivedResponse, curatedResponse] = await Promise.all([
@@ -2434,6 +2547,18 @@ async insertSafetyRecord(sessionId: number, userId: number, content: string): Pr
     VALUES (?, ?, ?);
   `;
   await this.db.execute(sql, [sessionId, userId, content]);
+}
+
+async getSafetyRecords(sessionId: number, limit = 100): Promise<SafetyRecord[]> {
+  const sql = `
+    SELECT safety_record_id, session_id, user_id, content, created_dttm
+    FROM safety_records
+    WHERE session_id = ?
+    ORDER BY safety_record_id DESC
+    LIMIT ?;
+  `;
+  const [rows] = await this.db.execute<SafetyRecord>(sql, [sessionId, limit]);
+  return rows;
 }
 
 

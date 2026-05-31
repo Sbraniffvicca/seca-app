@@ -26,4 +26,7 @@ export const config = {
     geminiApiKey: process.env.GEMINI_API_KEY,
     geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-pro-exp-03-25',
   },
+  seca: {
+    canonicalSessionId: Number(process.env.SECA_CANONICAL_SESSION_ID || 0),
+  },
 };

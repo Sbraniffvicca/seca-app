@@ -94,7 +94,10 @@ async register(registerDto: RegisterDto): Promise<string> {
     first_nm: firstName,
     last_nm: lastName
   });
-  const sessionId = await this.authRepository.createDefaultSession(userId);
+
+  const sessionId = config.seca.canonicalSessionId > 0
+    ? config.seca.canonicalSessionId
+    : await this.authRepository.createDefaultSession(userId);
   await this.authRepository.updateUserActiveSession(userId, sessionId);
 
   return this.login(email, registerDto.password);

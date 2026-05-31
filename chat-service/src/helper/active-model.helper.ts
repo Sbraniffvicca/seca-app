@@ -34,6 +34,24 @@ function formatConversationId(message: Conversations): string {
   return parts.length > 0 ? `${parts.join(' ')} ` : '';
 }
 
+function formatSpeakerMetadata(message: Conversations): string {
+  if (message.role !== 'user') {
+    return '';
+  }
+
+  const speakerName = message.speaker_name || message.speaker_email || `user-${message.user_id}`;
+  const parts = [
+    `[speaker: ${speakerName}]`,
+    `[speaker_user_id: ${message.user_id}]`
+  ];
+
+  if (message.speaker_role) {
+    parts.push(`[speaker_role: ${message.speaker_role}]`);
+  }
+
+  return `${parts.join(' ')}\n`;
+}
+
 function isGeminiMessages(messages: ActiveModelMessages): messages is GeminiMessage[] {
   return messages.every(message => 'parts' in message);
 }
@@ -181,7 +199,7 @@ export function transform_for_activemodel(
       let messageContent = message.content;
 
       if (['user', 'assistant'].includes(message.role)) {
-        messageContent = `${formatConversationId(message)}${messageContent}`;
+        messageContent = `${formatConversationId(message)}${formatSpeakerMetadata(message)}${messageContent}`;
       }
 
       if (accumulatedContext !== '') {
@@ -206,7 +224,7 @@ export function transform_for_activemodel(
     if (['system', 'user', 'assistant'].includes(msg.role)) {
       return {
         role: msg.role,
-        content: `${formatConversationId(msg)}${msg.content}`
+        content: `${formatConversationId(msg)}${formatSpeakerMetadata(msg)}${msg.content}`
       };
     }
 
